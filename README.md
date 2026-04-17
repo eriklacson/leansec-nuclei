@@ -35,18 +35,27 @@ gcloud storage cp results/mdi/2026-04/*.jsonl gs://mdi-security-scans/nuclei/202
 1. Copy `deployments/_example/` to `deployments/<client>/`
 2. Update `terraform.tfvars`, `backend.tf`, and `targets.txt`
 3. Create the Terraform state bucket (one-time bootstrap)
-4. Open a PR → `terraform plan` runs automatically
-5. Merge → `terraform apply` provisions all resources
+4. Copy the vendor workflows into `.github/workflows/` to activate CI/CD:
+   ```bash
+   cp infra/gcp/workflows/*.yml .github/workflows/
+   ```
+5. Open a PR → `terraform plan` runs automatically
+6. Merge → `terraform apply` provisions all resources
+
+> Cloud vendor workflows live in `infra/<vendor>/workflows/` and are **not active by default**. Copy them to `.github/workflows/` only when a cloud deployment is intended. This prevents accidental deploys on every push to main.
 
 ## Repository Structure
 
 ```
 leansecurity-nuclei/
-├── scanner/              # Nuclei CLI runner + profiles (vendor-agnostic)
-├── docker/               # Container builds (local Docker + cloud)
-├── infra/                # Terraform modules (gcp/ aws/ azure/)
-├── deployments/          # Per-client config (_example/ mdi/)
-└── .github/workflows/    # CI/CD (image build + terraform deploy)
+├── scanner/                    # Nuclei CLI runner + profiles (vendor-agnostic)
+├── docker/                     # Container builds (local Docker + cloud)
+├── infra/                      # Terraform modules per vendor
+│   └── gcp/
+│       ├── workflows/          # Inactive CI/CD workflows (deploy when ready)
+│       └── *.tf                # GCP Cloud Run + Scheduler + GCS
+├── deployments/                # Per-client config (_example/ mdi/)
+└── .github/workflows/          # Active CI/CD (ci.yaml always; vendor workflows on demand)
 ```
 
 ## Documentation

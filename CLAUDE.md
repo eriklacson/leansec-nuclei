@@ -90,9 +90,11 @@ terraform apply
 
 ## CI/CD
 
-- `ci.yaml`: Black + Ruff + Bandit + pytest on every push/PR to main
-- `scanner-image.yml`: Builds and pushes Docker image to GCP Artifact Registry when `docker/` or `scanner/profiles/` changes
-- `deploy.yml`: Terraform plan on PR, apply on merge, auto-discovered per client in `deployments/`
+- `.github/workflows/ci.yaml`: Black + Ruff + Bandit + pytest on every push/PR to main — always active
+- `infra/gcp/workflows/scanner-image.yml`: Builds and pushes Docker image to GCP Artifact Registry when `docker/` or `scanner/profiles/` changes
+- `infra/gcp/workflows/deploy.yml`: Terraform plan on PR, apply on merge, auto-discovered per client in `deployments/`
+
+Cloud vendor workflows live under `infra/<vendor>/workflows/` and must be manually copied to `.github/workflows/` to activate. This prevents accidental deploys when no cloud deployment is intended.
 
 ## Stack Conventions
 - Python: Poetry (tooling only — no Python source code currently)
