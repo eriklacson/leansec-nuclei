@@ -1,0 +1,42 @@
+[tool.poetry]
+name = "lean-security-template"
+version = "0.2.0"
+description = "Lean Security project template for Claude Code"
+authors = ["Erik Lacson <elacson@gmail.com>"]
+license = "Proprietary"
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.12"
+
+[tool.poetry.group.dev.dependencies]
+black = "^25.1.0"
+ruff = "^0.12.8"
+bandit = "^1.8.6"
+pre-commit = "^4.2.0"
+pytest = "^8.4.1"
+
+[tool.pytest.ini_options]
+addopts = "-q --maxfail=1 --disable-warnings"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 120
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "I", "S", "PT"]
+ignore = ["E501"]
+
+per-file-ignores = { "tests/**.py" = ["S101"] }
+
+[tool.bandit]
+skips = ["B101"]

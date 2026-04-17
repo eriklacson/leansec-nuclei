@@ -1,118 +1,68 @@
-# Lean Security — Claude Code Project Template
+# leansecurity-nuclei
 
-A reusable template for building Lean Security projects with Claude Code. Clone it, write a behavior spec, and the agent builds it — documents, CLI tools, or web applications — with CSFLite as the governing framework.
+LeanSecurity standard deployment for Nuclei external vulnerability scanning.
 
-## What's Inside
+## Overview
 
-```
-CLAUDE.md                    → Claude Code system prompt (loaded every session)
-.claude/settings.json        → Permission guardrails
-csflite/controls.json        → 25 CSFLite controls (source of truth)
-csflite/scoring.md           → Scoring methodology reference
-claude-project/              → Kit for designing specs in Claude conversations
-setup.sh                     → Post-clone local configuration
-```
+Automated Nuclei scans against client external assets. Three deployment modes from simplest to fully automated:
 
-## Quick Start
+| Mode | What You Need | How It Works |
+|------|---------------|--------------|
+| **Local CLI** | Nuclei installed | `./scanner/scan.sh mdi` — results to local disk |
+| **Local Docker** | Docker installed | Build from `docker/Dockerfile.local`, volume-mount config |
+| **Cloud (automated)** | Terraform + GCP/AWS/Azure | Ephemeral containers, cloud scheduler, IaC-managed |
 
-### 1. Clone
+## Quick Start (Local CLI)
 
 ```bash
-git clone git@github.com:<your-org>/lean-security-template.git my-project
-cd my-project
-./setup.sh
+# Install Nuclei
+brew install nuclei          # macOS
+# or: go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+
+# Run scan
+./scanner/scan.sh mdi
+
+# Results in results/mdi/YYYY-MM/
 ```
 
-`setup.sh` configures `.git/info/exclude` so that `.claude/` and other local-only files are never pushed from your project repo.
-
-### 2. Design the Spec
-
-Set up a Claude project for spec development:
-
-1. Create a new Claude project (e.g. "My Project — Spec")
-2. Paste `claude-project/system-instruction.md` as the project system prompt
-3. Upload as project knowledge:
-   - `claude-project/project-yaml-schema.md`
-   - `claude-project/examples/baseline-assessment.yaml`
-   - `csflite/controls.json`
-   - `csflite/scoring.md`
-4. Upload any seed documents (existing architecture docs, engagement notes)
-
-Then start a conversation. Two modes:
-
-**Greenfield:** "I'm starting a HIPAA alignment engagement for a 40-person healthtech company. Help me write the project.yaml."
-
-**Decomposition:** "Here's our architecture document. Break it into a project.yaml, ADRs, and protocol definitions."
-
-Output: a `project.yaml` and any supporting artifacts.
-
-### 3. Drop Artifacts Into the Repo
-
-Copy the spec and supporting files from the Claude conversation into your project:
-
-```
-my-project/
-├── project.yaml              ← from Claude conversation
-├── decisions/                 ← ADRs if any
-│   └── 0001-azure-hosting.md
-└── protocols/                 ← protocol definitions if any
-    └── edr-telemetry.json
+Push to GCS for Conduit when ready:
+```bash
+gcloud storage cp results/mdi/2026-04/*.jsonl gs://mdi-security-scans/nuclei/2026-04/
 ```
 
-### 4. Execute in Claude Code
+## Quick Start (Automated Cloud)
 
-Open the project in Claude Code. The agent reads `CLAUDE.md`, which points it to `project.yaml` and `csflite/`. Every task follows the execution loop:
+1. Copy `deployments/_example/` to `deployments/<client>/`
+2. Update `terraform.tfvars`, `backend.tf`, and `targets.txt`
+3. Create the Terraform state bucket (one-time bootstrap)
+4. Open a PR → `terraform plan` runs automatically
+5. Merge → `terraform apply` provisions all resources
 
-1. **READ** — project.yaml + controls.json + decisions/ + protocols/
-2. **PLAN** — agent proposes what to build, presents to you
-3. **APPROVE** — you review and adjust
-4. **IMPLEMENT** — agent builds it
-5. **VERIFY** — agent validates against CSFLite controls and acceptance criteria
-6. **REPORT** — agent presents output with verification results
-
-Or for simple projects, skip the Claude project step and initialize directly:
+## Repository Structure
 
 ```
-/project:new-project <domain>
+leansecurity-nuclei/
+├── scanner/              # Nuclei CLI runner + profiles (vendor-agnostic)
+├── docker/               # Container builds (local Docker + cloud)
+├── infra/                # Terraform modules (gcp/ aws/ azure/)
+├── deployments/          # Per-client config (_example/ mdi/)
+└── .github/workflows/    # CI/CD (image build + terraform deploy)
 ```
 
-## CSFLite
+## Documentation
 
-CSFLite is a 25-control governance framework derived from NIST CSF v2.0. It measures **coverage** (does this capability exist?), not maturity or risk.
+| Document | Audience |
+|----------|----------|
+| **Local Quickstart** | Erik — run scans now from local machine |
+| **Implementation Guide** | Erik / Claude Code — full architecture, IaC, CI/CD |
+| **Configuration Standard** | Joepet — profile catalog, rate limiting, schedule |
 
-Scoring: Yes (1.0) / Partial (0.5) / No (0.0) × weight per control.
+## CSFLite Controls
 
-See `csflite/controls.json` for the full control set and `csflite/scoring.md` for methodology.
-
-## Project Structure After Setup
-
-As you work, the repo grows:
-
-```
-my-project/
-├── CLAUDE.md                  → system prompt (from template)
-├── .claude/                   → settings, agents, commands (local only after setup.sh)
-├── csflite/                   → framework data (from template)
-├── claude-project/            → spec development kit (from template)
-├── project.yaml               → your behavior spec
-├── decisions/                 → architecture decision records
-├── protocols/                 → domain-specific data contracts
-├── docs/                      → generated documents (gitignored)
-├── setup.sh
-├── .gitignore
-└── README.md
-```
-
-## What This Template Does NOT Include
-
-These are added per-project as needed, not baked into the template:
-
-- Compliance crosswalks (SOC 2, HIPAA, ISO 27001 mappings)
-- Application scaffolds (added via `/project:gen-app` when ready)
-- CI/CD pipelines
-- Docker/deployment configs
-- Infrastructure-as-Code
-
-## License
-
-Lean Security IP. Not for redistribution.
+| Control | Evidence |
+|---------|----------|
+| DE.CM-08 | Scan execution + JSONL output |
+| PR.AA-01 | identity_remote_access profile |
+| PR.DS-01 | data_protection profile |
+| PR.PS-01 | patch_cve + owasp_top10_core + vuln_monitoring |
+| PR.IR-01 | transport_security profile |

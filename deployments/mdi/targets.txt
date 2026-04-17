@@ -1,0 +1,6 @@
+# MDI External Targets
+# Updated: April 2026
+# Maintained by: LeanSecurity
+
+https://bi.macrodistributors.com
+# Add additional exposed services below

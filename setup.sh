@@ -30,4 +30,15 @@ notes/
 EOF
 
 echo "✓ .git/info/exclude created"
+
+# Install dependencies and pre-commit hooks
+if command -v poetry &> /dev/null; then
+  poetry install --with dev
+  poetry run pre-commit install
+  echo "✓ Dependencies installed"
+  echo "✓ Pre-commit hooks installed"
+else
+  echo "⚠ Poetry not found. Run 'poetry install --with dev && poetry run pre-commit install' manually."
+fi
+
 echo "✓ Template ready. Run /project:new-project in Claude Code to initialize."

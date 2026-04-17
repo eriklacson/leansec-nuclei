@@ -1,0 +1,9 @@
+FROM projectdiscovery/nuclei:latest
+
+COPY entrypoint.sh /opt/nuclei/entrypoint.sh
+COPY ../scanner/profiles/ /opt/nuclei/profiles/
+RUN chmod +x /opt/nuclei/entrypoint.sh
+
+VOLUME ["/opt/nuclei/config", "/opt/nuclei/output"]
+
+ENTRYPOINT ["/opt/nuclei/entrypoint.sh"]

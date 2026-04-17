@@ -1,3 +1,17 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+.terraform.lock.hcl
+
+# Scan results (local mode)
+results/
+
+# OS
+.DS_Store
+Thumbs.db
+
 # Dependencies
 node_modules/
 __pycache__/
