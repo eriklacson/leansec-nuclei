@@ -12,8 +12,9 @@ set -euo pipefail
 CLIENT="${1:?Usage: ./scan.sh <client-name>}"
 SCAN_DATE=$(date +%Y-%m)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-TARGETS="${SCRIPT_DIR}/deployments/${CLIENT}/targets.txt"
-OUT="${SCRIPT_DIR}/results/${CLIENT}/${SCAN_DATE}"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+TARGETS="${REPO_ROOT}/deployments/${CLIENT}/targets.txt"
+OUT="${REPO_ROOT}/results/${CLIENT}/${SCAN_DATE}"
 
 # ─── Validate ───
 if ! command -v nuclei &> /dev/null; then
