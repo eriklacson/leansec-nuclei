@@ -29,7 +29,7 @@ PROFILES_PATH = Path(__file__).resolve().parent / "profiles" / "profiles.yaml"
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="LeanSecurity Nuclei Local Scanner",
-        epilog="Example: python scanner/scan.py mdi",
+        epilog="Example: python scanner/scan.py <client>",
     )
     parser.add_argument("client", help="client name (matches deployments/<client>/)")
     client = parser.parse_args().client

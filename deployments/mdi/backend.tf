@@ -1,6 +1,6 @@
 terraform {
   backend "gcs" {
-    bucket = "mdi-terraform-state"
+    bucket = "REPLACE-WITH-CLIENT-terraform-state"
     prefix = "nuclei-scanner"
   }
 }

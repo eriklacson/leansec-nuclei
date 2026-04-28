@@ -1,4 +1,4 @@
-# MDI External Targets
+# Client External Targets
 # Updated: April 2026
 # Maintained by: LeanSecurity
 

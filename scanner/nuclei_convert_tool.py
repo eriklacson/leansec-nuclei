@@ -34,7 +34,7 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     # operators have one consistent CLI shape across the scanner tools.
     parser = argparse.ArgumentParser(
         description="Consolidate Nuclei JSONL into one normalized JSON file",
-        epilog="Example: python scanner/nuclei_convert_tool.py mdi --month 2026-04",
+        epilog="Example: python scanner/nuclei_convert_tool.py <client> --month 2026-04",
     )
     parser.add_argument("client", help="client name (matches deployments/<client>/)")
     parser.add_argument(

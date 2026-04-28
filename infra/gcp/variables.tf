@@ -10,7 +10,7 @@ variable "region" {
 }
 
 variable "client_name" {
-  description = "Short client identifier (e.g., mdi)"
+  description = "Short client identifier"
   type        = string
 }
 

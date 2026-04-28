@@ -8,7 +8,7 @@ Automated Nuclei scans against client external assets. Currently supports local 
 
 | Mode | What You Need | How It Works |
 |------|---------------|--------------|
-| **Local CLI** | Nuclei installed | `./scanner/scan.py mdi` — results to local disk |
+| **Local CLI** | Nuclei installed | `./scanner/scan.py <client>` — results to local disk |
 | **Local Docker** | Docker installed | Build from `docker/Dockerfile.local`, volume-mount config |
 | **Cloud (automated)** | _Next phase_ | Terraform + Cloud Run/Scheduler — not yet available |
 
@@ -20,9 +20,9 @@ brew install nuclei          # macOS
 # or: go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 
 # Run scan
-./scanner/scan.py mdi
+./scanner/scan.py <client>
 
-# Results in results/mdi/YYYY-MM/
+# Results in results/<client>/YYYY-MM/
 ```
 
 ## Testing Against DVWA (Local)
@@ -55,7 +55,7 @@ Cloud-automated deployment (Terraform + Cloud Run job + Cloud Scheduler, ephemer
 leansecurity-nuclei/
 ├── scanner/                    # Nuclei CLI runner + profiles (vendor-agnostic)
 ├── docker/                     # Container builds (local Docker today; cloud next phase)
-├── deployments/                # Per-client config (_example/ mdi/)
+├── deployments/                # Per-client config (see _example/)
 └── .github/workflows/          # Active CI/CD (ci.yaml — lint/test only)
 ```
 
