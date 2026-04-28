@@ -30,6 +30,26 @@ Push to GCS for Conduit when ready:
 gcloud storage cp results/mdi/2026-04/*.jsonl gs://mdi-security-scans/nuclei/2026-04/
 ```
 
+## Testing Against DVWA (Local)
+
+Spin up [Damn Vulnerable Web Application](https://github.com/digininja/DVWA) as a known-bad target to validate scan profiles end-to-end:
+
+```bash
+# Start DVWA on http://localhost:80
+docker run --rm -p 80:80 vulnerables/web-dvwa
+
+# In another terminal, point the localtest deployment at it
+echo "http://localhost:80" > deployments/localtest/targets.txt
+
+# Run the scan
+./scanner/scan.py localtest
+
+# Inspect findings
+ls results/localtest/$(date +%Y-%m)/
+```
+
+Expect hits from `baseline_web`, `owasp_top10_core`, and `transport_security` profiles. Use this as smoke-test coverage before promoting profile changes to client deployments.
+
 ## Quick Start (Automated Cloud)
 
 1. Copy `deployments/_example/` to `deployments/<client>/`
