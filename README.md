@@ -25,6 +25,23 @@ brew install nuclei          # macOS
 # Results in results/<client>/YYYY-MM/
 ```
 
+### Upload Results to GCS
+
+Push the month's JSONL into the client's GCS bucket so downstream tooling (e.g. Conduit) can ingest it:
+
+```bash
+# One-time: authenticate
+gcloud auth login
+gcloud config set project <client>-gcp-project-id
+
+# Upload current month
+MONTH=$(date +%Y-%m)
+gcloud storage cp results/<client>/${MONTH}/*.jsonl \
+  gs://<client>-security-scans/nuclei/${MONTH}/
+```
+
+Replace `<client>` with the deployment name and the bucket name with the one provisioned for that client. Use `gcloud storage ls gs://<client>-security-scans/nuclei/` to confirm the upload landed.
+
 ## Testing Against DVWA (Local)
 
 Spin up [Damn Vulnerable Web Application](https://github.com/digininja/DVWA) as a known-bad target to validate scan profiles end-to-end:
