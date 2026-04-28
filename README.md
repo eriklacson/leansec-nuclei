@@ -59,15 +59,7 @@ leansecurity-nuclei/
 └── .github/workflows/          # Active CI/CD (ci.yaml — lint/test only)
 ```
 
-## Documentation
-
-| Document | Audience |
-|----------|----------|
-| **Local Quickstart** | Erik — run scans now from local machine |
-| **Implementation Guide** | Erik / Claude Code — full architecture, IaC, CI/CD |
-| **Configuration Standard** | Joepet — profile catalog, rate limiting, schedule |
-
-## CSFLite Controls
+## CSFLite Control Coverage
 
 | Control | Evidence |
 |---------|----------|
