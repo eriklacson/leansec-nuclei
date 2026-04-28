@@ -50,7 +50,7 @@ profiles:
 
   transport_security:
     tags: [ssl, tls, headers, hsts]
-    severity: [medium, high]
+    severity: [info, low, medium, high]
     csf_subcategory: [PR.IR-01]
     rate_limit: 3
     concurrency: 2
@@ -68,7 +68,7 @@ profiles:
     concurrency: 50
     retries: 2
     timeout: 10
-    input_mode: single
+    input_mode: list
     output: owasp_top10.jsonl
     notes: "Baseline OWASP Top 10 sweep."
 
