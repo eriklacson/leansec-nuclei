@@ -9,6 +9,7 @@ Writes results to:  results/<client>/YYYY-MM/
 """
 
 import argparse
+import json
 import shutil
 import subprocess
 import sys
@@ -19,6 +20,7 @@ from pathlib import Path
 # nuclei_helpers module is not on sys.path by default — prepend the scanner dir.
 sys.path.insert(0, str(Path(__file__).parent))
 from nuclei_helpers import build_nuclei_cmd, load_profiles, run_nuclei  # noqa: E402
+from nuclei_json_converter import consolidate_jsonl_dir  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PROFILES_PATH = Path(__file__).resolve().parent / "profiles" / "profiles.yaml"
@@ -73,11 +75,40 @@ def main() -> None:
             # build_nuclei_cmd does not add -silent; suppress nuclei's per-request progress output.
             cmd.append("-silent")
             run_nuclei(cmd)
-        except Exception:  # noqa: BLE001,S110
-            pass  # mirror scan.sh || true — remaining profiles still execute
+        except Exception as exc:  # noqa: BLE001
+            # Mirror scan.sh `|| true` — one bad profile must not abort the
+            # remaining ones. But surface the failure so a silent run does
+            # not look identical to a clean run; operators need to see which
+            # profile broke and why.
+            print(f"Warning: profile {name} failed: {exc}", file=sys.stderr)
 
+    # Collect every *.jsonl file the scan loop produced, then count total
+    # findings by tallying non-blank lines across all files. Each file is
+    # opened inside a `with` block so the handle is closed deterministically
+    # rather than waiting on garbage collection.
     jsonl_files = sorted(out_dir.glob("*.jsonl"))
-    findings = sum(sum(1 for line in f.open(encoding="utf-8") if line.strip()) for f in jsonl_files)
+    findings = 0
+    for jsonl_file in jsonl_files:
+        with jsonl_file.open(encoding="utf-8") as handle:
+            findings += sum(1 for line in handle if line.strip())
+
+    # Consolidate raw JSONL into the normalized JSON artifact consumed by the SLO
+    # tracking component. Failures here are logged but non-fatal — the raw JSONL
+    # on disk is the source of truth, so a transformation hiccup should not mask
+    # the fact that the scan itself succeeded.
+    consolidated_path = None
+    try:
+        # Walk out_dir, normalize every JSONL line, concatenate to one list.
+        consolidated = consolidate_jsonl_dir(out_dir)
+        # Filename uses today's date so multiple runs in the same month
+        # produce distinct files instead of silently overwriting.
+        run_date = datetime.now().strftime("%Y-%m-%d")
+        consolidated_path = out_dir / f"result-{run_date}.json"
+        consolidated_path.write_text(json.dumps(consolidated, indent=2), encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        # Catch-all is deliberate: report and continue. Operator still
+        # sees the scan summary and the raw JSONL is still on disk.
+        print(f"\nWarning: failed to write consolidated JSON: {exc}")
 
     print("\n─── Scan Complete ───")
     print(f"Client:  {client}")
@@ -86,6 +117,8 @@ def main() -> None:
     for f in jsonl_files:
         size = f.stat().st_size
         print(f"  {f.name}  ({size} bytes)")
+    if consolidated_path is not None:
+        print(f"\nNormalized: {consolidated_path.name}  ({consolidated_path.stat().st_size} bytes)")
     print("\nTo push results to GCS for Conduit:")
     print(f"  gcloud storage cp {out_dir}/*.jsonl gs://<bucket>/nuclei/{scan_date}/")
 

@@ -11,12 +11,13 @@ External vulnerability scanning pipeline using open-source Nuclei against client
 - It measures coverage (does this exist?), not maturity or risk
 - All outputs must trace to CSFLite controls in `csflite/controls.json`
 - Read `csflite/scoring.md` for scoring methodology
-- Read `claude-project/seed-document.md` for project scope and acceptance criteria
+- Read `claude-project/LeanSecurity_Nuclei_Seed_Document.md` for project scope and acceptance criteria
 - If an `decisions/` directory exists, read it for architecture decisions before planning any work
+
 
 ## Execution Loop
 All tasks follow this loop — no exceptions:
-1. READ — seed-document.md + controls.json + decisions/ (if exists)
+1. READ — 'claude-project/LeanSecurity_Nuclei_Seed_Document.md' + 'claud-project/task.md(if exist)'+ controls.json + decisions/(if exist) 
 2. PLAN — propose what to build, present to architect for review
 3. APPROVE — architect reviews, adjusts, records significant decisions as ADRs
 4. IMPLEMENT — build it
@@ -24,6 +25,9 @@ All tasks follow this loop — no exceptions:
 6. REPORT — present output + verification results, flag unresolved items honestly
 
 Never skip the PLAN step. Never silently deliver unverified output.
+Always validate any task against 'claud-project/task.md(if exist)' + 'claude-project/LeanSecurity_Nuclei_Seed_Document.md' before implementation.
+
+
 
 ## Architecture
 
@@ -61,9 +65,6 @@ Each subdirectory (except `_example/`) is an active client. CI auto-discovers th
 ## Commands
 
 ```bash
-# Setup (first time)
-./setup.sh
-
 # Install Python dependencies
 poetry install --with dev
 
@@ -76,7 +77,7 @@ poetry run bandit -r . -x ".venv,venv,build,dist,docs,migrations,tests"
 poetry run python -m pytest -q --maxfail=1 --disable-warnings
 
 # Run a scan locally (requires Nuclei installed)
-./scanner/scan.sh <client>
+./scanner/scan.py <client>
 
 # Build Docker image (local)
 docker build -f docker/Dockerfile.local -t nuclei-scanner .
