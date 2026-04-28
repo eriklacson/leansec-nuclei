@@ -8,7 +8,7 @@ Automated Nuclei scans against client external assets. Three deployment modes fr
 
 | Mode | What You Need | How It Works |
 |------|---------------|--------------|
-| **Local CLI** | Nuclei installed | `./scanner/scan.sh mdi` — results to local disk |
+| **Local CLI** | Nuclei installed | `./scanner/scan.py mdi` — results to local disk |
 | **Local Docker** | Docker installed | Build from `docker/Dockerfile.local`, volume-mount config |
 | **Cloud (automated)** | Terraform + GCP/AWS/Azure | Ephemeral containers, cloud scheduler, IaC-managed |
 
@@ -20,7 +20,7 @@ brew install nuclei          # macOS
 # or: go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 
 # Run scan
-./scanner/scan.sh mdi
+./scanner/scan.py mdi
 
 # Results in results/mdi/YYYY-MM/
 ```

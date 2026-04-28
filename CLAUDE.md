@@ -33,7 +33,7 @@ Always validate any task against 'claud-project/task.md(if exist)' + 'claude-pro
 
 Three deployment modes share the same 7 Nuclei scan profiles:
 
-1. **Local CLI** — `./scanner/scan.sh <client>` runs Nuclei directly on the host, reads `deployments/<client>/targets.txt`, writes JSONL to `results/<client>/YYYY-MM/`
+1. **Local CLI** — `./scanner/scan.py <client>` runs Nuclei directly on the host, reads `deployments/<client>/targets.txt`, writes JSONL to `results/<client>/YYYY-MM/`
 2. **Local Docker** — `docker/Dockerfile.local` with volume mounts for config and results
 3. **Cloud (GCP)** — Terraform-managed Cloud Run job + Cloud Scheduler, ephemeral container on cron schedule
 
@@ -51,7 +51,7 @@ Source of truth for all scan configuration. Seven CSFLite-aligned profiles:
 | owasp_top10_core | PR.PS-01 | 10 req/s, concurrency=50 |
 | vuln_monitoring | PR.PS-01 | 3 req/s |
 
-`scan.sh` and `docker/entrypoint.sh` both hardcode the same Nuclei flags to avoid YAML parsing at runtime.
+`scan.py` and `docker/entrypoint.sh` both hardcode the same Nuclei flags to avoid YAML parsing at runtime.
 
 ### Client Deployments (`deployments/`)
 
