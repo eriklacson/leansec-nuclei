@@ -3,7 +3,7 @@ module "nuclei" {
 
   project_id    = var.project_id
   region        = "asia-southeast1"
-  client_name   = "mdi"
+  client_name   = "REPLACE"
   scanner_image = var.scanner_image
   targets_file  = "${path.module}/targets.txt"
   profiles_file = "${path.module}/../../scanner/profiles/profiles.yaml"
@@ -13,7 +13,7 @@ module "nuclei" {
 }
 
 variable "project_id" {
-  description = "MDI GCP project ID"
+  description = "Client GCP project ID"
   type        = string
 }
 

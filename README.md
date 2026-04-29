@@ -4,13 +4,13 @@ LeanSecurity standard deployment for Nuclei external vulnerability scanning.
 
 ## Overview
 
-Automated Nuclei scans against client external assets. Three deployment modes from simplest to fully automated:
+Automated Nuclei scans against client external assets. Currently supports local execution; cloud-automated deployment is planned for the next phase.
 
 | Mode | What You Need | How It Works |
 |------|---------------|--------------|
-| **Local CLI** | Nuclei installed | `./scanner/scan.sh mdi` — results to local disk |
+| **Local CLI** | Nuclei installed | `./scanner/scan.py <client>` — results to local disk |
 | **Local Docker** | Docker installed | Build from `docker/Dockerfile.local`, volume-mount config |
-| **Cloud (automated)** | Terraform + GCP/AWS/Azure | Ephemeral containers, cloud scheduler, IaC-managed |
+| **Cloud (automated)** | _Next phase_ | Terraform + Cloud Run/Scheduler — not yet available |
 
 ## Quick Start (Local CLI)
 
@@ -20,53 +20,63 @@ brew install nuclei          # macOS
 # or: go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 
 # Run scan
-./scanner/scan.sh mdi
+./scanner/scan.py <client>
 
-# Results in results/mdi/YYYY-MM/
+# Results in results/<client>/YYYY-MM/
 ```
 
-Push to GCS for Conduit when ready:
+### Upload Results to GCS
+
+Push the month's JSONL into the client's GCS bucket so downstream tooling (e.g. Conduit) can ingest it:
+
 ```bash
-gcloud storage cp results/mdi/2026-04/*.jsonl gs://mdi-security-scans/nuclei/2026-04/
+# One-time: authenticate
+gcloud auth login
+gcloud config set project <client>-gcp-project-id
+
+# Upload current month
+MONTH=$(date +%Y-%m)
+gcloud storage cp results/<client>/${MONTH}/*.jsonl \
+  gs://<client>-security-scans/nuclei/${MONTH}/
 ```
 
-## Quick Start (Automated Cloud)
+Replace `<client>` with the deployment name and the bucket name with the one provisioned for that client. Use `gcloud storage ls gs://<client>-security-scans/nuclei/` to confirm the upload landed.
 
-1. Copy `deployments/_example/` to `deployments/<client>/`
-2. Update `terraform.tfvars`, `backend.tf`, and `targets.txt`
-3. Create the Terraform state bucket (one-time bootstrap)
-4. Copy the vendor workflows into `.github/workflows/` to activate CI/CD:
-   ```bash
-   cp infra/gcp/workflows/*.yml .github/workflows/
-   ```
-5. Open a PR → `terraform plan` runs automatically
-6. Merge → `terraform apply` provisions all resources
+## Testing Against DVWA (Local)
 
-> Cloud vendor workflows live in `infra/<vendor>/workflows/` and are **not active by default**. Copy them to `.github/workflows/` only when a cloud deployment is intended. This prevents accidental deploys on every push to main.
+Spin up [Damn Vulnerable Web Application](https://github.com/digininja/DVWA) as a known-bad target to validate scan profiles end-to-end:
+
+```bash
+# Start DVWA on http://localhost:80
+docker run --rm -p 80:80 vulnerables/web-dvwa
+
+# In another terminal, point the localtest deployment at it
+echo "http://localhost:80" > deployments/localtest/targets.txt
+
+# Run the scan
+./scanner/scan.py localtest
+
+# Inspect findings
+ls results/localtest/$(date +%Y-%m)/
+```
+
+Expect hits from `baseline_web`, `owasp_top10_core`, and `transport_security` profiles. Use this as smoke-test coverage before promoting profile changes to client deployments.
+
+## Cloud Deployment — Next Phase
+
+Cloud-automated deployment (Terraform + Cloud Run job + Cloud Scheduler, ephemeral containers, IaC-managed per client) is planned for the next phase and is **not yet available**. Scaffolding under `infra/` and `infra/<vendor>/workflows/` is staged for that work but inactive — do not attempt to provision from `main` yet.
 
 ## Repository Structure
 
 ```
 leansecurity-nuclei/
 ├── scanner/                    # Nuclei CLI runner + profiles (vendor-agnostic)
-├── docker/                     # Container builds (local Docker + cloud)
-├── infra/                      # Terraform modules per vendor
-│   └── gcp/
-│       ├── workflows/          # Inactive CI/CD workflows (deploy when ready)
-│       └── *.tf                # GCP Cloud Run + Scheduler + GCS
-├── deployments/                # Per-client config (_example/ mdi/)
-└── .github/workflows/          # Active CI/CD (ci.yaml always; vendor workflows on demand)
+├── docker/                     # Container builds (local Docker today; cloud next phase)
+├── deployments/                # Per-client config (see _example/)
+└── .github/workflows/          # Active CI/CD (ci.yaml — lint/test only)
 ```
 
-## Documentation
-
-| Document | Audience |
-|----------|----------|
-| **Local Quickstart** | Erik — run scans now from local machine |
-| **Implementation Guide** | Erik / Claude Code — full architecture, IaC, CI/CD |
-| **Configuration Standard** | Joepet — profile catalog, rate limiting, schedule |
-
-## CSFLite Controls
+## CSFLite Control Coverage
 
 | Control | Evidence |
 |---------|----------|

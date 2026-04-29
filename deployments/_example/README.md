@@ -7,7 +7,7 @@ Template for onboarding new clients.
 ```bash
 cp -r deployments/_example deployments/<client>
 # Edit targets.txt with client external targets
-./scanner/scan.sh <client>
+./scanner/scan.py <client>
 ```
 
 ## Automated Cloud Deployment
