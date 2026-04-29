@@ -65,7 +65,7 @@ profiles:
     severity: [info, low, medium, high, critical]
     csf_subcategory: [PR.PS-01]
     rate_limit: 10
-    concurrency: 50
+    concurrency: 5
     retries: 2
     timeout: 10
     input_mode: list
