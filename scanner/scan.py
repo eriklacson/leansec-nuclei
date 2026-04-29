@@ -118,7 +118,7 @@ def main() -> None:
         print(f"  {f.name}  ({size} bytes)")
     if consolidated_path is not None:
         print(f"\nNormalized: {consolidated_path.name}  ({consolidated_path.stat().st_size} bytes)")
-    print("\nTo push results to GCS for Conduit:")
+    print("\nTo push results to GCS for the registry and SLO tracker:")
     print(f"  gcloud storage cp {out_dir}/*.jsonl gs://<bucket>/nuclei/{scan_date}/")
 
 

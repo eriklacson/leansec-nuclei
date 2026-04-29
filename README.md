@@ -27,7 +27,7 @@ brew install nuclei          # macOS
 
 ### Upload Results to GCS
 
-Push the month's JSONL into the client's GCS bucket so downstream tooling (e.g. Conduit) can ingest it:
+Push the month's JSONL into the client's GCS bucket so downstream tooling (the registry and SLO tracker) can ingest it:
 
 ```bash
 # One-time: authenticate

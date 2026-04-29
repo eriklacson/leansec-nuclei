@@ -153,9 +153,11 @@ def build_nuclei_cmd(
     cmd += ["-rl", str(rate_limit), "-c", str(concurrency), "-retries", str(retries), "-timeout", str(timeout)]
 
     # -omit-raw strips the raw HTTP request/response bodies from each finding —
-    # Conduit only needs structured metadata, not full payloads, and omitting them
-    # keeps JSONL files lean for GCS transfer and ingestion.
-    cmd += ["-omit-raw", "-je", str(resolved_output_path)]
+    # the registry and SLO tracker only need structured metadata, not full payloads,
+    # and omitting them keeps JSONL files lean for GCS transfer and ingestion. -jle emits JSONL
+    # (one object per line) which is what the consolidator and the .jsonl
+    # filename convention expect; -je would emit a single JSON array instead.
+    cmd += ["-omit-raw", "-jle", str(resolved_output_path)]
 
     return cmd
 
