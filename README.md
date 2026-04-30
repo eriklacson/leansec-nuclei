@@ -32,15 +32,22 @@ Push the month's JSONL into the client's GCS bucket so downstream tooling (the r
 ```bash
 # One-time: authenticate
 gcloud auth login
-gcloud config set project <client>-gcp-project-id
+
+# One-time per client: copy the env template and fill in project + bucket
+cp deployments/_example/.env.example deployments/<client>/.env
+$EDITOR deployments/<client>/.env
 
 # Upload current month
-MONTH=$(date +%Y-%m)
-gcloud storage cp results/<client>/${MONTH}/*.jsonl \
-  gs://<client>-security-scans/nuclei/${MONTH}/
+./scanner/upload_to_gcs.py <client>
+
+# Or a specific month
+./scanner/upload_to_gcs.py <client> --month 2026-04
+
+# Preview without uploading
+./scanner/upload_to_gcs.py <client> --dry-run
 ```
 
-Replace `<client>` with the deployment name and the bucket name with the one provisioned for that client. Use `gcloud storage ls gs://<client>-security-scans/nuclei/` to confirm the upload landed.
+The tool reads `GCP_PROJECT`, `GCS_BUCKET`, and (optional) `GCS_PREFIX` from `deployments/<client>/.env`, verifies an active `gcloud` session, and uploads every `*.jsonl` from `results/<client>/<YYYY-MM>/` to `<GCS_BUCKET>/<GCS_PREFIX>/<YYYY-MM>/`. Use `gcloud storage ls <GCS_BUCKET>/<GCS_PREFIX>/` to confirm the upload landed.
 
 ## Testing Against DVWA (Local)
 
