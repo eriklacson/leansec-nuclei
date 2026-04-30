@@ -1,6 +1,6 @@
-# leansecurity-nuclei
+# leansec-nuclei
 
-LeanSecurity standard deployment for Nuclei external vulnerability scanning.
+LeanSecurity standard deployment wrapper for Nuclei external vulnerability scanning.
 
 ## Overview
 
