@@ -1,0 +1,417 @@
+# project.yaml — Local Container Rebuild
+#
+# Component:   docker/ (scanner container layer, Local Docker mode only)
+# Scope:       docker/Dockerfile.local + docker/entrypoint.sh (shared) + .dockerignore
+# Status:      Spec — signed off; ready for implementation
+# Supersedes:  Existing docker/Dockerfile.local, docker/entrypoint.sh
+# Depends on:  ADR-007 (Python carryover into container)
+# Defers:      docker/Dockerfile (cloud) and infra/gcp/workflows/scanner-image.yml
+#              build-context fix to a follow-up project.yaml. Cloud E2E
+#              validation is part of that follow-up.
+
+name: local-container-rebuild
+version: 0.2  # 0.1 → 0.2: open questions resolved; cloud Dockerfile descoped
+mode: build  # architecture is locked via ADR-007; this is implementation, not spec
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WHY THIS EXISTS
+# ─────────────────────────────────────────────────────────────────────────────
+rationale: |
+  The current container layer (docker/Dockerfile, Dockerfile.local, entrypoint.sh)
+  has four concrete defects against the seed document:
+
+    1. COPY ../scanner/profiles/ in both Dockerfiles is invalid Docker syntax
+       and cannot succeed under any documented build context.
+    2. entrypoint.sh writes JSONL filenames (identity_, transport_, owasp_top10_)
+       that diverge from profiles.yaml profile names — the exact "drift between
+       profiles.yaml and entrypoint.sh" failure mode the seed document explicitly
+       calls a bug.
+    3. The container produces only raw JSONL. The local CLI (scan.py) produces
+       both raw JSONL and consolidated normalized JSON. Two runtimes, two
+       output shapes — violates the architectural intent that local CLI and
+       local container are interchangeable.
+    4. There is no canonical `docker run` invocation documented. Local Docker
+       mode is effectively undocumented.
+
+  ADR-007 supersedes the "container entrypoint is bash, no YAML parsing"
+  locked decision. The new model: bash wrapper handles cloud I/O dispatch,
+  scan.py handles scan execution and normalization. Single source of truth
+  for scan logic across local CLI and container modes.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCOPE
+# ─────────────────────────────────────────────────────────────────────────────
+in_scope:
+  - Rewrite docker/Dockerfile.local on python:3.12-slim base
+  - Rewrite docker/entrypoint.sh as a thin bash wrapper that invokes scan.py.
+    The file includes cloud-mode branches (gcp/aws/azure) so it works for the
+    cloud Dockerfile rebuild later, but only the local branch is exercised
+    and validated by this PR.
+  - Add .dockerignore at repo root
+  - Pin Nuclei version via build arg (NUCLEI_VERSION). Initial pin: v3.4.10
+    (verify against https://github.com/projectdiscovery/nuclei/releases
+    before merge — version may need a bump).
+  - Add UPDATE_TEMPLATES env var (default true) to make template refresh optional
+  - Document the canonical `docker run` invocation in README
+  - Add tests/test_container.py — local-mode smoke tests, gated on Docker
+    availability
+  - Author decisions/ADR-007-python-in-container.md (already drafted; ships
+    in this PR)
+
+out_of_scope:
+  - docker/Dockerfile (cloud image) — explicitly deferred to a follow-up
+    project.yaml. Current cloud Dockerfile remains in repo as-is until the
+    follow-up PR rebuilds it alongside cloud E2E validation.
+  - infra/gcp/workflows/scanner-image.yml build-context fix — deferred with
+    the cloud Dockerfile rebuild. The workflow currently builds with
+    `docker build ... -f docker/Dockerfile docker/` (context = docker/).
+    That context cannot resolve `COPY scanner/` paths, so the workflow will
+    break against any rebuilt cloud Dockerfile. Fix lands in the same PR
+    that rebuilds the cloud Dockerfile, not before.
+  - Cloud-mode end-to-end validation (Cloud Run job + Cloud Scheduler +
+    Conduit ingest) — handled by the cloud follow-up.
+  - vmctl container (docker/Dockerfile.vmctl) — separate component, separate
+    spec.
+  - AWS/Azure end-to-end validation. Entrypoint case blocks for aws/azure
+    are present in the rewritten entrypoint.sh but unexercised by this PR's
+    test suite.
+  - Conduit intake bucket path migration (ADR-006) — Conduit-owned,
+    cross-project.
+  - Multi-stage build / single-Dockerfile collapse — explicitly rejected;
+    keep Dockerfile.local and Dockerfile as separate files.
+  - Local Quickstart .docx update — per the system instruction "Implementation
+    Guide and Local Quickstart are pending re-draft after the SLO tracking
+    component is scoped." A markdown delta may be drafted alongside this PR
+    for the eventual re-draft, but the .docx itself is not touched.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DELIVERABLES
+# ─────────────────────────────────────────────────────────────────────────────
+deliverables:
+
+  - path: docker/Dockerfile.local
+    description: |
+      Lightweight image for consultant local validation. python:3.12-slim base,
+      Nuclei binary installed at pinned version, scanner/ code copied in,
+      pyyaml installed via pip. No cloud CLIs.
+    constraints:
+      - Base image MUST be python:3.12-slim (matches planned vmctl base)
+      - Nuclei version MUST be pinned via ARG NUCLEI_VERSION; initial default
+        is v3.4.10 (verify before merge)
+      - MUST NOT install Poetry — runtime image uses pip for pyyaml only
+      - MUST NOT install gcloud, aws-cli, or az — those belong in Dockerfile only
+      - Working directory MUST be /app
+      - scanner/ MUST be copied to /app/scanner/
+      - profiles.yaml is baked in via scanner/profiles/profiles.yaml — no
+        runtime download
+      - ENTRYPOINT MUST be the shared docker/entrypoint.sh
+      - VOLUME declarations MUST be /app/deployments and /app/results
+      - Build context MUST be repo root: `docker build -f docker/Dockerfile.local .`
+
+  - path: docker/entrypoint.sh
+    description: |
+      Bash wrapper. Validates required environment, dispatches cloud I/O for
+      targets.txt download / results upload, invokes scan.py for the actual
+      scan. Branches on CLOUD_PROVIDER. Cloud branches present but unexercised
+      by this PR.
+    constraints:
+      - MUST stay bash (#!/bin/bash, set -euo pipefail)
+      - MUST validate CLIENT env var is set; exit 1 with clear message otherwise
+      - MUST validate CLOUD_PROVIDER is one of local/gcp/aws/azure; exit 1 otherwise
+      - MUST NOT parse YAML (parsing remains exclusive to nuclei_helpers.py)
+      - MUST NOT hardcode any nuclei flags (those live in profiles.yaml,
+        executed by scan.py via nuclei_helpers.build_nuclei_cmd)
+      - MUST NOT loop over profiles in bash — scan.py handles the loop and
+        the per-profile try/except
+      - download_config MUST fetch only targets.txt; profiles.yaml is baked in
+      - upload_results MUST upload both *.jsonl and result-*.json (the new
+        normalized JSON output from scan.py)
+      - For CLOUD_PROVIDER=local, both download_config and upload_results
+        are no-ops; volumes do the work
+      - UPDATE_TEMPLATES env var (default "true") gates `nuclei -update-templates`
+      - MUST exit non-zero only if scan.py itself raises; per-profile failures
+        are scan.py's responsibility (already wrapped in try/except per the
+        scanner contract)
+      - File MUST reference ADR-007 in its header comment
+
+  - path: .dockerignore
+    description: |
+      At repo root. Excludes results/, .git/, .venv/, __pycache__,
+      live deployments/<client>/ directories, and other non-image artifacts
+      from the build context.
+    constraints:
+      - MUST exclude results/
+      - MUST exclude .git/, .github/
+      - MUST exclude .venv/, venv/, __pycache__/, *.pyc
+      - MUST exclude all of deployments/ EXCEPT deployments/_example/ —
+        live client target lists are mounted at run time, never baked into
+        the image
+      - MUST exclude infra/, tests/, docs/, *.docx
+      - MUST exclude pyproject.toml and poetry.lock — runtime image uses pip
+
+  - path: tests/test_container.py
+    description: |
+      Smoke tests that exercise the built local image. Verifies build success,
+      entrypoint validation, and scan execution against a mounted deployments/
+      directory. Local-mode only; cloud-mode branches are unexercised here.
+    constraints:
+      - MUST be skippable when Docker is not available (pytest skip marker
+        on the entire module)
+      - MUST build the image once per session (pytest fixture, session scope)
+      - MUST verify image builds without error
+      - MUST verify nuclei -version returns the pinned NUCLEI_VERSION
+      - MUST verify python --version returns 3.12.x
+      - MUST verify profiles.yaml is present at /app/scanner/profiles/profiles.yaml
+        inside the image
+      - MUST verify container exits non-zero when CLIENT env var is missing
+      - MUST verify container exits non-zero on unsupported CLOUD_PROVIDER
+      - MUST verify container exits non-zero when CLIENT references a
+        non-existent deployment directory
+      - MUST verify container produces *.jsonl and result-*.json under
+        results/<client>/YYYY-MM/ when run against an unreachable-but-valid
+        target (port 1 on 127.0.0.1) — exercises the full
+        entrypoint → scan.py → output path without requiring a network
+        fixture
+      - MUST NOT make outbound network requests in CI beyond the build's
+        Nuclei binary download. UPDATE_TEMPLATES=false in tests.
+
+  - path: README.md
+    description: Add canonical Local Docker section parallel to Local CLI.
+    constraints:
+      - MUST show: docker build -f docker/Dockerfile.local -t leansecurity/nuclei-scanner:local .
+      - MUST show: docker run with -e CLIENT=<client>, -v deployments/, -v results/
+      - MUST clarify that local CLI and local Docker are equivalent in output
+      - MUST note that profiles.yaml is baked into the image (rebuild required
+        to change profiles)
+      - MUST link to decisions/ADR-007-python-in-container.md
+
+  - path: decisions/ADR-007-python-in-container.md
+    description: |
+      Architecture decision record superseding the seed document's "Container
+      entrypoint is bash, no YAML parsing" locked decision. Already drafted;
+      ships in this PR.
+    constraints:
+      - MUST be committed before or with the code changes
+      - MUST reference the seed document section it supersedes
+      - MUST be acknowledged in the next seed document revision (§10
+        Locked Design Decisions). The seed-document v1.2 delta is drafted
+        separately and is NOT part of this PR.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INTERFACE CONTRACTS
+# ─────────────────────────────────────────────────────────────────────────────
+contracts:
+
+  environment_variables:
+    required:
+      CLIENT:
+        description: Client deployment name; matches a directory under deployments/
+        validated_at: entrypoint start (exit 1 if missing)
+    optional:
+      CLOUD_PROVIDER:
+        default: local
+        values: [local, gcp, aws, azure]
+      CONFIG_BUCKET:
+        description: |
+          Cloud storage path for targets.txt (cloud modes only). Required
+          when CLOUD_PROVIDER != local; entrypoint exits 1 if missing.
+      RESULTS_BUCKET:
+        description: |
+          Cloud storage path for results upload (cloud modes only). Required
+          when CLOUD_PROVIDER != local; entrypoint exits 1 if missing.
+      TARGETS_PATH:
+        default: targets/targets.txt
+        description: Path to targets.txt within CONFIG_BUCKET (cloud modes only)
+      UPDATE_TEMPLATES:
+        default: "true"
+        description: Whether to run `nuclei -update-templates` at container start
+    removed:
+      PROFILES_PATH:
+        rationale: |
+          profiles.yaml is now baked into the image at build time. The image
+          rebuild on profiles.yaml change is already wired in
+          infra/gcp/workflows/scanner-image.yml. Runtime download is dead weight.
+
+  volumes_local_mode:
+    deployments:
+      host: ./deployments
+      container: /app/deployments
+      mode: ro
+      purpose: Read targets.txt for the specified CLIENT
+    results:
+      host: ./results
+      container: /app/results
+      mode: rw
+      purpose: scan.py writes raw JSONL and normalized JSON here
+
+  volumes_cloud_mode:
+    description: |
+      Cloud modes do not use volume mounts. targets.txt is fetched from
+      CONFIG_BUCKET via download_config. Results are uploaded to RESULTS_BUCKET
+      via upload_results. /app/deployments and /app/results are populated by
+      the entrypoint at runtime.
+
+  invocation:
+    local_cli_equivalent: poetry run python scanner/scan.py <client>
+    container_local: |
+      docker run --rm \
+        -e CLIENT=<client> \
+        -v "$(pwd)/deployments:/app/deployments:ro" \
+        -v "$(pwd)/results:/app/results" \
+        leansecurity/nuclei-scanner:local
+    container_cloud: |
+      Out of scope for this project.yaml. Specced in the cloud follow-up.
+
+  output:
+    raw_jsonl: results/<client>/YYYY-MM/<profile>_YYYY-MM.jsonl
+    normalized_json: results/<client>/YYYY-MM/result-YYYY-MM-DD.json
+    parity_with_local_cli: |
+      Local CLI and local Docker MUST produce files in identical paths with
+      identical filenames. File contents MUST be functionally equivalent
+      (timestamps and similar volatile fields excepted) — vmctl, Conduit
+      ingest, and any downstream consumer MUST NOT be able to tell which
+      mode produced the output.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONSTRAINTS — ARCHITECTURAL
+# ─────────────────────────────────────────────────────────────────────────────
+constraints:
+
+  boundary_rules_preserved:
+    - scanner/ does NOT import from docker/, infra/, or vmctl/
+    - scanner/ runtime deps remain Python 3.12, pyyaml, nuclei binary on PATH
+    - docker/ does NOT import from infra/
+    - entrypoint.sh reads environment variables only — no hardcoded client,
+      cloud, or path values
+
+  superseded_by_adr_007:
+    - "Container entrypoint is bash, no YAML parsing" — REPLACED with
+      "Container entrypoint is bash + Python; bash for cloud I/O dispatch,
+      Python for scan execution and YAML parsing"
+    - "Drift between profiles.yaml and entrypoint.sh is a bug" — REPLACED with
+      "profiles.yaml is the single source of truth; scan.py parses it; the
+      drift surface no longer exists"
+
+  reaffirmed_by_adr_007:
+    - Local first. Always. Local Docker remains a first-class deployment mode.
+    - profiles.yaml is the single source of truth for scan configuration.
+    - Ephemeral containers in cloud mode.
+    - Cloud storage is the Conduit bridge.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ACCEPTANCE CRITERIA
+# ─────────────────────────────────────────────────────────────────────────────
+acceptance_criteria:
+
+  build:
+    - "`docker build -f docker/Dockerfile.local -t leansecurity/nuclei-scanner:local .` succeeds from repo root with exit 0"
+    - Built image size for Dockerfile.local is < 300MB
+    - "`docker run --rm --entrypoint nuclei leansecurity/nuclei-scanner:local -version` returns the pinned NUCLEI_VERSION"
+    - "`docker run --rm --entrypoint python leansecurity/nuclei-scanner:local --version` returns 3.12.x"
+    - "`docker run --rm --entrypoint cat leansecurity/nuclei-scanner:local /app/scanner/profiles/profiles.yaml` succeeds and outputs valid YAML"
+
+  entrypoint_validation:
+    - Container without CLIENT env var exits non-zero with a clear error message
+    - Container with unsupported CLOUD_PROVIDER value exits non-zero
+    - Container with CLIENT pointing at a non-existent deployments/<client>/
+      exits non-zero with a clear error
+    - Container with CLOUD_PROVIDER=local and valid mounts runs to completion
+    - UPDATE_TEMPLATES=false skips `nuclei -update-templates`
+
+  output_parity:
+    - For an identical targets.txt, local CLI and local Docker produce
+      file outputs at identical paths with identical filenames
+    - Filenames in both modes use the canonical profile names from
+      profiles.yaml (baseline_web, patch_cve, identity_remote_access,
+      data_protection, transport_security, owasp_top10_core, vuln_monitoring)
+    - No filename in either mode reads identity_*.jsonl or transport_*.jsonl
+      or owasp_top10_*.jsonl — the legacy mismatch is gone
+    - Both modes produce a result-YYYY-MM-DD.json normalized output
+
+  ci_compatibility:
+    - .github/workflows/ci.yaml continues to pass — no scanner-layer code
+      changed by this rebuild
+    - tests/test_container.py is included in the existing pytest suite,
+      gated by Docker availability (skipped cleanly when Docker is absent)
+    - infra/gcp/workflows/scanner-image.yml is NOT expected to pass against
+      the rebuilt Dockerfile.local — that workflow targets docker/Dockerfile
+      (cloud), which this PR does not touch
+
+  documentation:
+    - README has a Local Docker section with the canonical `docker run` invocation
+    - decisions/ADR-007-python-in-container.md exists and is referenced by
+      docker/entrypoint.sh as a comment header
+    - Local Quickstart .docx is NOT updated by this PR (deferred per system
+      instruction)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RESOLVED OPEN QUESTIONS (from v0.1)
+# ─────────────────────────────────────────────────────────────────────────────
+resolved:
+  - id: nuclei-version-pin
+    resolution: |
+      Initial pin: NUCLEI_VERSION=v3.4.10. Architect to verify against
+      https://github.com/projectdiscovery/nuclei/releases before merge and
+      bump if a more recent stable patch exists. Pin string is the only
+      source of truth and lives in docker/Dockerfile.local; tests/test_container.py
+      asserts against the same constant.
+    resolved_on: 2026-05-05
+
+  - id: ci-workflow-build-context
+    resolution: |
+      Deferred. The infra/gcp/workflows/scanner-image.yml build-context fix
+      lands with the cloud Dockerfile rebuild in a follow-up PR, not this one.
+      This PR does not modify docker/Dockerfile (cloud) and does not touch
+      the workflow.
+    resolved_on: 2026-05-05
+
+  - id: cloud-mode-validation
+    resolution: |
+      Out of scope for this PR. Cloud follow-up project.yaml will cover
+      docker/Dockerfile rebuild + scanner-image.yml build-context fix +
+      Cloud Run E2E validation as a single coherent unit.
+    resolved_on: 2026-05-05
+
+  - id: dockerignore-deployments-policy
+    resolution: |
+      .dockerignore excludes deployments/ except deployments/_example/.
+      Test harness in tests/test_container.py uses a tmp_path-based deployments
+      tree mounted at run time, so the .dockerignore policy does not block
+      the smoke test.
+    resolved_on: 2026-05-05
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IMPLEMENTATION ORDER (for whoever picks this up — Claude Code or otherwise)
+# ─────────────────────────────────────────────────────────────────────────────
+implementation_order:
+  - 1: Verify Nuclei v3.4.10 is the right pin against the releases page; bump if needed
+  - 2: Commit decisions/ADR-007-python-in-container.md
+  - 3: Add .dockerignore at repo root
+  - 4: Rewrite docker/Dockerfile.local
+  - 5: Rewrite docker/entrypoint.sh (local-mode branches exercised; cloud branches present but unexercised)
+  - 6: Add tests/test_container.py
+  - 7: Verify acceptance criteria: build, entrypoint_validation, output_parity, ci_compatibility, documentation
+  - 8: Update README.md with the Local Docker section
+  - 9: Open PR; merge gates on CI green and architect approval
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FOLLOW-UP WORK (NOT this PR)
+# ─────────────────────────────────────────────────────────────────────────────
+follow_up:
+  - cloud-container-rebuild:
+      scope: |
+        Rewrite docker/Dockerfile (cloud) on the same python:3.12-slim base
+        with cloud CLIs layered in. Fix infra/gcp/workflows/scanner-image.yml
+        build context. Run cloud E2E validation against a test client on
+        Cloud Run.
+      blocked_by: This PR landing and stabilizing.
+
+  - seed-document-v1.2-revision:
+      scope: |
+        Fold the seed-document-v1.2-delta drafted separately into the next
+        seed document revision. Updates §10 Locked Design Decisions, the
+        Runtime Language Policy section, the Component Registry, and §12
+        Change Log. Per system instruction, the seed document is not
+        re-drafted piecemeal — this revision waits for the SLO tracking
+        component scope.
+      blocked_by: SLO tracking component (vmctl) scope finalization.
