@@ -46,3 +46,7 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# Claude Code project config — always tracked, overrides generic rules above
+!.claude/**/
+!.claude/**
