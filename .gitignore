@@ -9,7 +9,7 @@
 results/
 
 # Client deployments (redacted; do not commit)
-deployments/mdi/
+deployments/
 
 # OS
 .DS_Store
@@ -26,9 +26,6 @@ venv/
 dist/
 build/
 *.egg-info/
-
-# Generated project outputs
-docs/
 
 # Environment and secrets
 .env
@@ -47,6 +44,11 @@ Thumbs.db
 *.swp
 *.swo
 
+####always tracked, overrides generic rules above####
+
 # Claude Code project config — always tracked, overrides generic rules above
 !.claude/**/
 !.claude/**
+
+# example deployement 
+! deployments/_example 
