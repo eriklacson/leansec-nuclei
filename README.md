@@ -74,6 +74,33 @@ Notes:
 - Set `-e UPDATE_TEMPLATES=false` to skip the `nuclei -update-templates` call at startup (useful in air-gapped or CI environments).
 - Architecture rationale: see [decisions/ADR-007-python-in-container.md](decisions/ADR-007-python-in-container.md).
 
+### Validating the build against known-vulnerable apps
+
+After rebuilding the scanner image, you can sanity-check it against a
+local validation harness (DVWA, Juice Shop, WebGoat). See
+[`tests/validation/README.md`](tests/validation/README.md) for the full
+workflow. Quick version:
+
+```bash
+# Bring up the harness
+docker compose -f tests/validation/docker-compose.yaml up -d
+
+# Scan it
+docker run --rm \
+  --network=scanner-validation \
+  -e CLIENT=_validation \
+  -v "$(pwd)/deployments:/app/deployments:ro" \
+  -v "$(pwd)/results:/app/results" \
+  leansecurity/nuclei-scanner:local
+
+# Tear down
+docker compose -f tests/validation/docker-compose.yaml down
+```
+
+Expect findings > 0 across multiple profiles. Zero findings against the
+validation harness means something is wrong with the rebuild — the apps
+are intentionally vulnerable.
+
 ## Testing Against DVWA (Local)
 
 Spin up [Damn Vulnerable Web Application](https://github.com/digininja/DVWA) as a known-bad target to validate scan profiles end-to-end:

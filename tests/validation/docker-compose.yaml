@@ -1,0 +1,46 @@
+# Local validation harness for the scanner container.
+#
+# Brings up DVWA, OWASP Juice Shop, and WebGoat on a shared Docker network
+# named scanner-validation. The scanner container joins this network at
+# run time (see tests/validation/README.md) and addresses each app by
+# container hostname.
+#
+# Usage:
+#   docker compose -f tests/validation/docker-compose.yaml up -d
+#   # ... run the scanner ...
+#   docker compose -f tests/validation/docker-compose.yaml down
+
+services:
+  # Damn Vulnerable Web Application — classic PHP/MySQL vuln target.
+  # Reachable inside the network as http://dvwa:80
+  dvwa:
+    image: vulnerables/web-dvwa
+    container_name: dvwa
+    networks:
+      - scanner-validation
+    restart: unless-stopped
+
+  # OWASP Juice Shop — modern Node.js vuln target covering OWASP Top 10.
+  # Reachable inside the network as http://juice-shop:3000
+  juice-shop:
+    image: bkimminich/juice-shop
+    container_name: juice-shop
+    networks:
+      - scanner-validation
+    restart: unless-stopped
+
+  # OWASP WebGoat — Java-based vuln teaching target.
+  # Reachable inside the network as http://webgoat:8080
+  webgoat:
+    image: webgoat/webgoat
+    container_name: webgoat
+    networks:
+      - scanner-validation
+    restart: unless-stopped
+
+# Explicit network name avoids Compose's <project>_<network> prefix so the
+# scanner can use --network=scanner-validation without computing a prefix.
+networks:
+  scanner-validation:
+    name: scanner-validation
+    driver: bridge
