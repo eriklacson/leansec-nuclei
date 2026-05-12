@@ -29,15 +29,6 @@ services:
       - scanner-validation
     restart: unless-stopped
 
-  # OWASP WebGoat — Java-based vuln teaching target.
-  # Reachable inside the network as http://webgoat:8080
-  webgoat:
-    image: webgoat/webgoat
-    container_name: webgoat
-    networks:
-      - scanner-validation
-    restart: unless-stopped
-
 # Explicit network name avoids Compose's <project>_<network> prefix so the
 # scanner can use --network=scanner-validation without computing a prefix.
 networks:
