@@ -50,5 +50,9 @@ Thumbs.db
 !.claude/**/
 !.claude/**
 
-# example deployement 
-! deployments/_example 
+# deployment files example 
+! deployments/_example
+! deployments/_validation
+# local validation deployment files example
+! deployments/_validation/ .env.example
+
