@@ -2,5 +2,6 @@
 # Updated: April 2026
 # Maintained by: LeanSecurity
 
-https://bi.macrodistributors.com
-# Add additional exposed services below
+# vpn server and public web server.
+# flag as high risk attack vector 
+119.92.143.236
