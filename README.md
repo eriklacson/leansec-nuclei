@@ -49,6 +49,58 @@ $EDITOR deployments/<client>/.env
 
 The tool reads `GCP_PROJECT`, `GCS_BUCKET`, and (optional) `GCS_PREFIX` from `deployments/<client>/.env`, verifies an active `gcloud` session, and uploads every `*.jsonl` from `results/<client>/<YYYY-MM>/` to `<GCS_BUCKET>/<GCS_PREFIX>/<YYYY-MM>/`. Use `gcloud storage ls <GCS_BUCKET>/<GCS_PREFIX>/` to confirm the upload landed.
 
+## Quick Start (Local Docker)
+
+Local Docker is a deployment vehicle for the same `scan.py` the Local CLI runs — output is equivalent at identical paths with identical filenames. Use it when you want to scan without installing Nuclei on the host.
+
+```bash
+# Build (build context is repo root, NOT docker/)
+docker build -f docker/Dockerfile.local -t leansecurity/nuclei-scanner:local .
+
+# Run a scan
+docker run --rm \
+  -e CLIENT=<client> \
+  -v "$(pwd)/deployments:/app/deployments:ro" \
+  -v "$(pwd)/results:/app/results" \
+  leansecurity/nuclei-scanner:local
+
+# Results land in results/<client>/YYYY-MM/ on the host, just like Local CLI.
+```
+
+Notes:
+
+- `profiles.yaml` is baked into the image at build time. To change scan profiles, edit `scanner/profiles/profiles.yaml` and rebuild the image.
+- The Nuclei version is pinned via `--build-arg NUCLEI_VERSION=vX.Y.Z` (default in `docker/Dockerfile.local`).
+- Set `-e UPDATE_TEMPLATES=false` to skip the `nuclei -update-templates` call at startup (useful in air-gapped or CI environments).
+- Architecture rationale: see [decisions/ADR-007-python-in-container.md](decisions/ADR-007-python-in-container.md).
+
+### Validating the build against known-vulnerable apps
+
+After rebuilding the scanner image, you can sanity-check it against a
+local validation harness (DVWA, Juice Shop, WebGoat). See
+[`tests/validation/README.md`](tests/validation/README.md) for the full
+workflow. Quick version:
+
+```bash
+# Bring up the harness
+docker compose -f tests/validation/docker-compose.yaml up -d
+
+# Scan it
+docker run --rm \
+  --network=scanner-validation \
+  -e CLIENT=_validation \
+  -v "$(pwd)/deployments:/app/deployments:ro" \
+  -v "$(pwd)/results:/app/results" \
+  leansecurity/nuclei-scanner:local
+
+# Tear down
+docker compose -f tests/validation/docker-compose.yaml down
+```
+
+Expect findings > 0 across multiple profiles. Zero findings against the
+validation harness means something is wrong with the rebuild — the apps
+are intentionally vulnerable.
+
 ## Testing Against DVWA (Local)
 
 Spin up [Damn Vulnerable Web Application](https://github.com/digininja/DVWA) as a known-bad target to validate scan profiles end-to-end:

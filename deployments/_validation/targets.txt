@@ -1,0 +1,4 @@
+# Validation harness targets — for use with tests/validation/docker-compose.yaml
+# Scanner must run on the scanner-validation Docker network to resolve these.
+http://dvwa:80
+http://juice-shop:3000
