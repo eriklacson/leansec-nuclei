@@ -17,15 +17,15 @@ External vulnerability scanning pipeline using open-source Nuclei against public
 
 ## Execution Loop
 All tasks follow this loop — no exceptions:
-1. READ — 'claude-project/LeanSecurity_Nuclei_Seed_Document.md' + ('.claude/task.md(if exist)' or '.claude/sprint.md(if exist))' + controls.json + decisions/(if exist). Write how you understand in '.claude/scope.md' 
+1. READ — '.claude/docs/LeanSecurity_Nuclei_Seed_Document.md' + ('.claude/task.md(if exist)' or '.claude/sprint.md(if exist))' + controls.json + decisions/(if exist). Write how you understand in '.claude/scope.md' 
 2. PLAN — propose what to build, present to architect for review. Write plan in '.claude/plan.md', including any assumptions or open questions.
 3. APPROVE — architect reviews, adjusts, records significant decisions as ADRs
 4. IMPLEMENT — build it
 5. VERIFY — validate control IDs against controls.json, check acceptance criteria, run tests
-6. REPORT — present output + verification results, flag unresolved items honestly
+6. REPORT — present output + verification results, flag unresolved items honestly. write in report-<sprint name>.md
 
 Never skip the READ and PLAN step. Never silently deliver unverified output.
-Always validate any task against '('.claude/task.md(if exist)' or '.claude/sprint.md(if exist))' + 'claude-project/LeanSecurity_Nuclei_Seed_Document.md' before implementation.
+Always validate any task against '('.claude/task.md(if exist)' or '.claude/sprint.md(if exist))' + '/claude/docs/LeanSecurity_Nuclei_Seed_Document.md' before implementation.
 
 ## Architecture
 

@@ -1,7 +1,7 @@
 # # LeanSecurity — Nuclei
-## Project Seed Document v1.2
+## Project Seed Document v1.3
 **Classification:** LeanSecurity Internal IP
-**Status:** Container layer rebuilt under ADR-007 (May 2026); scanner layer Python; Month 1 build complete
+**Status:** Container layer rebuilt under ADR-007 (May 2026); scanner layer Python; normalized JSON output wrapped in v1 envelope (May 2026); Month 1 build complete
 **Last updated:** May 2026
 
 ---
@@ -141,17 +141,55 @@ Produced by Nuclei. One JSON object per line per finding. Identical format regar
 
 ### Normalized JSON Output — Normalized Scan Results
 
-Produced by scan.py. Consolidated of JSONL output of Nuclei scan findings in `results/`.  One normalized JSON object per line per finding. Identical format regardless of deployment mode. Consumed by SLO tracking component (for later development). Sample normalized JSON: claude-project/normalized_sample.json
+Produced by `scan.py` (and by the standalone `scanner/nuclei_convert_tool.py` re-consolidation CLI). Consolidates the raw Nuclei JSONL output in `results/<client>/<YYYY-MM>/` into a single JSON document written to `results/<client>/<YYYY-MM>/result-<YYYY-MM-DD>.json`. Identical format regardless of deployment mode. Consumed by external integrations (third-party SLO trackers, dashboards, future Conduit P2 ingest). Sample normalized JSON: `.claude/docs/normalized_sample.json`.
+
+The document is wrapped in a versioned envelope so consumers integrate against a stable, evolvable contract. The envelope replaces the previous bare-array shape — there is no backward-compatibility mode.
+
+**Envelope shape:**
+
+```json
+{
+  "schema_version": 1,
+  "scan_run": {
+    "client": "<client>",
+    "run_date": "YYYY-MM-DD",
+    "profiles_executed": ["<sorted profile names>"],
+    "findings_count": 42
+  },
+  "findings": [ <normalized finding objects> ]
+}
+```
+
+**Top-level fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `schema_version` | `integer` | Envelope contract version. Currently `1`. Source of truth: `nuclei_json_converter.SCHEMA_VERSION`. |
+| `scan_run` | `object` | Run-level metadata (see below). |
+| `findings` | `array` | List of normalized finding objects (see "Finding object" table below). |
+
+**`scan_run` fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `client` | `string` | Client deployment name; matches a directory under `deployments/<client>/`. Passed in from the CLI. |
+| `run_date` | `string` | ISO date (`YYYY-MM-DD`) when the consolidated document was produced. Computed by the caller (`scan.py` / `nuclei_convert_tool.py`), not by the envelope builder. |
+| `profiles_executed` | `array[string]` | Profile names derived from the `*.jsonl` filenames present in the run directory. Sorted for deterministic output. |
+| `findings_count` | `integer` | `len(findings)`. Provided for consumer convenience — the value is always equal to the length of the `findings` array. |
+
+**Finding object (one entry per element in `findings[]`):**
 
 | Field | Type | Description |
 |---|---|---|
 | `timestamp` | `string` | ISO 8601 scan timestamp. Maps to Discovery Date in register. |
-| `host` | `string` | Maps to host in Raw JSON Output.|
-| `template-id` | `string` | Maps to template-id' in Raw JSON Output. |
-| `info.name` | `string` | Maps to info.name in Raw JSON Output. |
-| `matched-at` | `string` | Maps to matched-at in Raw JSON Output. |
-| `info.severity` | `string` | Maps to info.severity in Raw JSON Output. |
-| `description` | `string` | Maps to description in Raw JSON Output. |
+| `host` | `string` | Maps to `host` in Raw JSON Output. |
+| `template-id` | `string` | Maps to `template-id` in Raw JSON Output. |
+| `info.name` | `string` | Maps to `info.name` in Raw JSON Output. |
+| `matched-at` | `string` | Maps to `matched-at` in Raw JSON Output. |
+| `info.severity` | `string` | Maps to `info.severity` in Raw JSON Output. |
+| `description` | `string` | Maps to `info.description` (with fallback to `info.name`) in Raw JSON Output. |
+
+The finding object shape is unchanged from the pre-envelope contract — only the outer container changed. Envelope construction is implemented in `scanner/nuclei_json_converter.build_normalized_document(...)`, which is pure (no I/O, no `datetime`, no env access); callers supply `run_date`.
 
 ### Local Results Directory — Filesystem Contract
 
@@ -525,3 +563,4 @@ schedule_timezone = "<client-timezone>"
 | 1.0 | April 2026 | Initial seed document. Bash scanner (`scan.sh`), bash entrypoint (`entrypoint.sh`), GCP Terraform module, three-mode progressive deployment. |
 | 1.1 | April 2026 | Scanner layer ported to Python. `scan.sh` deprecated; `scan.py` + `nuclei_helpers.py` added. `profiles.yaml` now parsed at runtime by `scan.py`. `entrypoint.sh` remains bash (container exception). Python 3.12 + Poetry + CI (Black/Ruff/Bandit/pytest) added. Locked design decisions §10 updated. Profile-sync surface reduced from two scripts to one. |
 | 1.2 | May 2026 | ADR-007 integrated. Container layer rebuilt: `python:3.12-slim` base, Nuclei binary at pinned version (`NUCLEI_VERSION` build arg), `scan.py` invoked from a thin bash wrapper. The "container is bash-only" v1.1 decision is reversed. The "drift between profiles.yaml and entrypoint.sh is a bug" v1.1 decision is replaced by structural elimination of the drift surface — `profiles.yaml` is now the single source of truth with no parallel hardcoded copy. `PROFILES_PATH` env var removed; profiles bake into the image. `CLIENT` env var now required at entrypoint. `UPDATE_TEMPLATES` env var added. Profile output stems normalized to canonical names (`identity_remote_access`, `transport_security`, `owasp_top10_core`). |
+| 1.3 | May 2026 | Normalized JSON Output wrapped in a versioned envelope (sprint `update/normalize_json_wrapper`). §3 §"Normalized JSON Output" rewritten: the consolidated `result-YYYY-MM-DD.json` is now a single JSON document with `schema_version` (integer; sourced from `nuclei_json_converter.SCHEMA_VERSION = 1`), `scan_run.{client, run_date, profiles_executed, findings_count}`, and `findings[]`. The previous bare-array shape is retired with no backward-compat mode. Finding object shape is unchanged. Envelope construction lives in `scanner/nuclei_json_converter.build_normalized_document(...)`; profile-name derivation from JSONL filenames lives in `list_executed_profiles(...)`. Both `scanner/scan.py` and `scanner/nuclei_convert_tool.py` emit the envelope. Out of scope (deferred): `scan_started_at` / `scan_completed_at` / `scanner_version` fields, consumer-direction schema validation. |

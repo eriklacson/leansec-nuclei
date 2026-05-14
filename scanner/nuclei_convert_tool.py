@@ -20,7 +20,11 @@ from typing import Iterable, Optional
 # scanner/ is not a package, so add it to sys.path before importing the
 # sibling helper module. Same pattern used by scan.py.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from nuclei_json_converter import consolidate_jsonl_dir  # noqa: E402
+from nuclei_json_converter import (  # noqa: E402
+    build_normalized_document,
+    consolidate_jsonl_dir,
+    list_executed_profiles,
+)
 
 # Repo root = parent of scanner/. All filesystem paths are derived from
 # here so the script works regardless of the cwd it is invoked from.
@@ -67,17 +71,33 @@ def main(argv: Optional[Iterable[str]] = None) -> None:
     # Walk every JSONL file in the directory, parse line-by-line, and
     # concatenate into one normalized list (sorted-filename order so
     # output is deterministic).
-    consolidated = consolidate_jsonl_dir(input_dir)
+    findings = consolidate_jsonl_dir(input_dir)
 
-    # Compose the output filename from today's date (the run date), and
-    # serialize the list as pretty-printed JSON next to the raw JSONL.
+    # Derive profile names from the *.jsonl filenames so the envelope
+    # reflects which profiles actually contributed to this consolidation.
+    profiles_executed = list_executed_profiles(input_dir)
+
+    # Compose the output filename from today's date (the run date). The
+    # convert tool's purpose is to produce a fresh run-date-stamped file
+    # from existing JSONL, so datetime.now() is the correct source.
     run_date = datetime.now().strftime("%Y-%m-%d")
+
+    # Wrap findings in the v1 envelope before serializing so the output
+    # matches the contract scan.py emits in production.
+    document = build_normalized_document(
+        findings=findings,
+        client=args.client,
+        run_date=run_date,
+        profiles_executed=profiles_executed,
+    )
+
     output_path = input_dir / f"result-{run_date}.json"
-    output_path.write_text(json.dumps(consolidated, indent=2), encoding="utf-8")
+    output_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
 
     # User-facing summary so the operator immediately knows what got
-    # written and how many findings were consolidated.
-    print(f"Consolidated {len(consolidated)} finding(s) from {len(jsonl_files)} JSONL file(s)")
+    # written, how many findings were consolidated, and across how many
+    # profiles.
+    print(f"Wrote v1 normalized document with {len(findings)} finding(s) across {len(profiles_executed)} profile(s)")
     print(f"Output: {output_path}")
 
 

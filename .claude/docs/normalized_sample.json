@@ -1,24 +1,36 @@
-[
-    {
-        "timestamp": "2025-10-11T15:58:30.076533302+08:00",
-        "host": "juice-shop.herokuapp.com",
-        "template-id": "networking/open-ports",
-        "matched-at": "https://juice-shop.herokuapp.com/metrics",
-        "description": "Exposed TCP port detected",
-        "info": {
-            "name": "Open Port Detection",
-            "severity": "info"
-        }
+{
+    "schema_version": 1,
+    "scan_run": {
+        "client": "example-client",
+        "run_date": "2025-10-11",
+        "profiles_executed": [
+            "baseline_web",
+            "vuln_monitoring"
+        ],
+        "findings_count": 2
     },
-    {
-        "timestamp": "2025-10-11T15:58:30.076533302+08:00",
-        "host": "juice-shop.herokuapp.com",
-        "template-id": "prometheus-metrics",
-        "matched-at": "https://juice-shop.herokuapp.com/",
-        "description": "Prometheus metrics page was detected.",
-        "info": {
-            "name": "Prometheus Metrics - Detect",
-            "severity": "medium"
+    "findings": [
+        {
+            "timestamp": "2025-10-11T15:58:30.076533302+08:00",
+            "host": "juice-shop.herokuapp.com",
+            "template-id": "networking/open-ports",
+            "matched-at": "https://juice-shop.herokuapp.com/metrics",
+            "description": "Exposed TCP port detected",
+            "info": {
+                "name": "Open Port Detection",
+                "severity": "info"
+            }
+        },
+        {
+            "timestamp": "2025-10-11T15:58:30.076533302+08:00",
+            "host": "juice-shop.herokuapp.com",
+            "template-id": "prometheus-metrics",
+            "matched-at": "https://juice-shop.herokuapp.com/",
+            "description": "Prometheus metrics page was detected.",
+            "info": {
+                "name": "Prometheus Metrics - Detect",
+                "severity": "medium"
+            }
         }
-    }
-]
+    ]
+}

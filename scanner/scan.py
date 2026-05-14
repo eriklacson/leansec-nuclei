@@ -20,7 +20,11 @@ from pathlib import Path
 # nuclei_helpers module is not on sys.path by default — prepend the scanner dir.
 sys.path.insert(0, str(Path(__file__).parent))
 from nuclei_helpers import build_nuclei_cmd, load_profiles, run_nuclei  # noqa: E402
-from nuclei_json_converter import consolidate_jsonl_dir  # noqa: E402
+from nuclei_json_converter import (  # noqa: E402
+    build_normalized_document,
+    consolidate_jsonl_dir,
+    list_executed_profiles,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PROFILES_PATH = Path(__file__).resolve().parent / "profiles" / "profiles.yaml"
@@ -86,24 +90,35 @@ def main() -> None:
     # opened inside a `with` block so the handle is closed deterministically
     # rather than waiting on garbage collection.
     jsonl_files = sorted(out_dir.glob("*.jsonl"))
-    findings = 0
+    findings_count = 0
     for jsonl_file in jsonl_files:
         with jsonl_file.open(encoding="utf-8") as handle:
-            findings += sum(1 for line in handle if line.strip())
+            findings_count += sum(1 for line in handle if line.strip())
 
-    # Consolidate raw JSONL into the normalized JSON artifact consumed by the SLO
-    # tracking component. Failures here are logged but non-fatal — the raw JSONL
-    # on disk is the source of truth, so a transformation hiccup should not mask
-    # the fact that the scan itself succeeded.
+    # Consolidate raw JSONL into the v1 normalized JSON envelope consumed by
+    # external integrations. Failures here are logged but non-fatal — the raw
+    # JSONL on disk is the source of truth, so a transformation hiccup should
+    # not mask the fact that the scan itself succeeded.
     consolidated_path = None
     try:
         # Walk out_dir, normalize every JSONL line, concatenate to one list.
-        consolidated = consolidate_jsonl_dir(out_dir)
+        findings = consolidate_jsonl_dir(out_dir)
+        # Derive profile names from the *.jsonl files actually written by
+        # this scan so the envelope reflects what ran, not what was defined.
+        profiles_executed = list_executed_profiles(out_dir)
         # Filename uses today's date so multiple runs in the same month
         # produce distinct files instead of silently overwriting.
         run_date = datetime.now().strftime("%Y-%m-%d")
+        # Wrap findings in the v1 envelope before serializing so external
+        # consumers integrate against a stable, evolvable contract.
+        document = build_normalized_document(
+            findings=findings,
+            client=client,
+            run_date=run_date,
+            profiles_executed=profiles_executed,
+        )
         consolidated_path = out_dir / f"result-{run_date}.json"
-        consolidated_path.write_text(json.dumps(consolidated, indent=2), encoding="utf-8")
+        consolidated_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
     except Exception as exc:  # noqa: BLE001
         # Catch-all is deliberate: report and continue. Operator still
         # sees the scan summary and the raw JSONL is still on disk.
@@ -112,7 +127,7 @@ def main() -> None:
     print("\n─── Scan Complete ───")
     print(f"Client:  {client}")
     print(f"Results: results/{client}/{scan_date}/\n")
-    print(f"Total findings: {findings}\n")
+    print(f"Total findings: {findings_count}\n")
     for f in jsonl_files:
         size = f.stat().st_size
         print(f"  {f.name}  ({size} bytes)")
