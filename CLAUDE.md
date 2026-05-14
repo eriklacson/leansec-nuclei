@@ -2,9 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-# Lean Security — Nuclei Scanner
+# Lean Security — Nuclei Scanner Wrapper
 
-External vulnerability scanning pipeline using open-source Nuclei against client public-facing assets, producing JSONL output mapped to CSFLite controls.
+External vulnerability scanning pipeline using open-source Nuclei against public-facing assets, producing JSONL output mapped to CSFLite controls.
 
 ## Operating Context
 - CSFLite is a 25-control governance framework derived from NIST CSF v2.0
@@ -12,22 +12,20 @@ External vulnerability scanning pipeline using open-source Nuclei against client
 - All outputs must trace to CSFLite controls in `csflite/controls.json`
 - Read `csflite/scoring.md` for scoring methodology
 - Read `claude-project/LeanSecurity_Nuclei_Seed_Document.md` for project scope and acceptance criteria
-- If an `decisions/` directory exists, read it for architecture decisions before planning any work
+- If `decisions/` directory exists, read it for architecture decisions before planning any work
 
 
 ## Execution Loop
 All tasks follow this loop — no exceptions:
-1. READ — 'claude-project/LeanSecurity_Nuclei_Seed_Document.md' + 'claud-project/task.md(if exist)'+ controls.json + decisions/(if exist) 
-2. PLAN — propose what to build, present to architect for review
+1. READ — 'claude-project/LeanSecurity_Nuclei_Seed_Document.md' + ('.claude/task.md(if exist)' or '.claude/sprint.md(if exist))' + controls.json + decisions/(if exist). Write how you understand in '.claude/scope.md' 
+2. PLAN — propose what to build, present to architect for review. Write plan in '.claude/plan.md', including any assumptions or open questions.
 3. APPROVE — architect reviews, adjusts, records significant decisions as ADRs
 4. IMPLEMENT — build it
 5. VERIFY — validate control IDs against controls.json, check acceptance criteria, run tests
 6. REPORT — present output + verification results, flag unresolved items honestly
 
-Never skip the PLAN step. Never silently deliver unverified output.
-Always validate any task against 'claud-project/task.md(if exist)' + 'claude-project/LeanSecurity_Nuclei_Seed_Document.md' before implementation.
-
-
+Never skip the READ and PLAN step. Never silently deliver unverified output.
+Always validate any task against '('.claude/task.md(if exist)' or '.claude/sprint.md(if exist))' + 'claude-project/LeanSecurity_Nuclei_Seed_Document.md' before implementation.
 
 ## Architecture
 
@@ -79,8 +77,28 @@ poetry run python -m pytest -q --maxfail=1 --disable-warnings
 # Run a scan locally (requires Nuclei installed)
 ./scanner/scan.py <client>
 
-# Build Docker image (local)
-docker build -f docker/Dockerfile.local -t nuclei-scanner .
+# Build Docker image (local) — build context is repo root, NOT docker/
+docker build -f docker/Dockerfile.local -t leansecurity/nuclei-scanner:local .
+
+# Run a scan in the local container
+docker run --rm \
+  -e CLIENT=<client> \
+  -v "$(pwd)/deployments:/app/deployments:ro" \
+  -v "$(pwd)/results:/app/results" \
+  leansecurity/nuclei-scanner:local
+
+# Skip the nuclei -update-templates call at startup (air-gapped/CI)
+docker run --rm \
+  -e CLIENT=<client> \
+  -e UPDATE_TEMPLATES=false \
+  -v "$(pwd)/deployments:/app/deployments:ro" \
+  -v "$(pwd)/results:/app/results" \
+  leansecurity/nuclei-scanner:local
+
+# Pin the Nuclei version at build time
+docker build -f docker/Dockerfile.local \
+  --build-arg NUCLEI_VERSION=vX.Y.Z \
+  -t leansecurity/nuclei-scanner:local .
 
 # Terraform (per client)
 cd deployments/<client>
