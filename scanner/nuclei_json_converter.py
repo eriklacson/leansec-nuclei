@@ -1,16 +1,24 @@
 """Utilities for normalizing Nuclei scan output.
 
-Converts the raw JSON Nuclei produces into the simplified, seed-document
-shape consumed by the SLO tracking component. The reference shape lives in
+Converts the raw JSON Nuclei produces into the v1 normalized JSON contract
+consumed by external integrations. The reference shape lives in
 ``.claude/docs/normalized_sample.json`` and the field contract lives in
-``Normalized JSON Output`` of the seed document.
+``Normalized JSON Output`` of the seed document. ``build_normalized_document``
+wraps the per-finding list in the v1 envelope (``schema_version`` + ``scan_run``
++ ``findings``) that those integrations consume.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence, Union
+
+# Single source of the envelope version. `build_normalized_document` reads
+# this rather than hardcoding the literal so the constant is the only knob
+# to bump when the contract evolves.
+SCHEMA_VERSION = 1
 
 
 def _coerce_to_entries(raw: Union[Mapping[str, Any], Sequence[Mapping[str, Any]]]) -> List[Dict[str, Any]]:
@@ -180,3 +188,67 @@ def consolidate_jsonl_dir(directory: Union[str, Path]) -> List[Dict[str, Any]]:
     for jsonl_file in sorted(dir_path.glob("*.jsonl")):
         consolidated.extend(convert_nuclei_jsonl_file(jsonl_file))
     return consolidated
+
+
+# Trailing _YYYY-MM segment on JSONL filenames per the canonical scan-output
+# convention. Defined once at module scope so the regex is compiled once and
+# the convention is documented in exactly one place.
+_PROFILE_MONTH_SUFFIX = re.compile(r"_\d{4}-\d{2}$")
+
+
+def list_executed_profiles(directory: Union[str, Path]) -> List[str]:
+    """Return profile names derived from ``*.jsonl`` filenames in ``directory``.
+
+    Filename convention: ``<profile>_<YYYY-MM>.jsonl``. Returns the profile
+    stems (filename without the trailing ``_YYYY-MM.jsonl``), sorted and
+    deduplicated. Raises ``NotADirectoryError`` if ``directory`` is not a
+    directory.
+    """
+
+    # Same guard contract as consolidate_jsonl_dir so callers see one
+    # predictable failure mode when the path is wrong.
+    dir_path = Path(directory)
+    if not dir_path.is_dir():
+        raise NotADirectoryError(f"Not a directory: {dir_path}")
+
+    # Strip the trailing _YYYY-MM segment when the filename matches the
+    # canonical scan-output convention; otherwise fall back to the bare
+    # stem so stray *.jsonl files do not crash the pipeline.
+    profiles: set[str] = set()
+    for jsonl_file in dir_path.glob("*.jsonl"):
+        profiles.add(_PROFILE_MONTH_SUFFIX.sub("", jsonl_file.stem))
+
+    # Sorted output = deterministic profile order in the envelope across
+    # runs and platforms.
+    return sorted(profiles)
+
+
+def build_normalized_document(
+    findings: List[Dict[str, Any]],
+    client: str,
+    run_date: str,
+    profiles_executed: List[str],
+) -> Dict[str, Any]:
+    """Wrap a list of normalized findings into the v1 contract envelope.
+
+    Returns a dict with ``schema_version``, ``scan_run``, and ``findings``
+    keys matching the external integration contract. Pure: no I/O, no env
+    access, no datetime calls — the caller is responsible for computing
+    ``run_date``.
+    """
+
+    # Source schema_version from the module constant so updates flow from
+    # one place — prevents accidental hardcoding drift across helpers and
+    # tests.
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "scan_run": {
+            "client": client,
+            "run_date": run_date,
+            # Sort so envelope output is deterministic regardless of how
+            # the caller built the profile list.
+            "profiles_executed": sorted(profiles_executed),
+            "findings_count": len(findings),
+        },
+        "findings": findings,
+    }
