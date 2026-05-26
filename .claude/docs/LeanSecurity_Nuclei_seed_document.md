@@ -22,8 +22,8 @@ The first proof-of-concept deployment is for an active client engagement. The cl
 |---|---|---|
 | `LeanSecurity — CSFLite` | Framework IP | Control definitions, weights, scoring methodology. Nuclei consumes `controls.yaml` via the `csf_subcategory` field in profiles.yaml it does not define or modify controls. |
 | `LeanSecurity — [Client]` | Client delivery | Client engagement context, P2 Solution Architecture, Vulnerability Management Program policy, vulnerability register, remediation workflow. Nuclei is one implementation component within P2. |
-| `LeanSecurity — Governance Pipeline` | Internal IP | Conduit platform, P2 ingest adapter, canonical event model, CSFLite scoring engine. Conduit P2 ingest adaptor consumes Nuclei normalized JSON output from cloud storage. Nuclei does not write to Conduit directly. |
-| `LeanSecurity — Nuclei` | Internal IP | Scanner layer (`scan.py`, `nuclei_helpers.py`, `profiles.yaml`), container builds (Dockerfiles, `entrypoint.sh`), Transformation layer (conversts raw Nuclie JSONL to normalized JSON format for Conduit P2 ingest adaptor), nfrastructure modules (Terraform per cloud vendor), client deployment templates, CI/CD workflows, JSONL output format specification. |
+| `LeanSecurity — Governance Pipeline` | Internal IP | Conduit platform, P2 ingest adapter, canonical event model, CSFLite scoring engine. Conduit P2 ingest adapter consumes Nuclei normalized JSON output from cloud storage. Nuclei does not write to Conduit directly. |
+| `LeanSecurity — Nuclei` | Internal IP | Scanner layer (`scan.py`, `nuclei_helpers.py`, `profiles.yaml`), container builds (Dockerfiles, `entrypoint.sh`), Transformation layer (converts raw Nuclei JSONL to normalized JSON format for Conduit P2 ingest adapter), Infrastructure modules (Terraform per cloud vendor), client deployment templates, CI/CD workflows, JSONL output format specification. |
 
 ---
 
@@ -38,7 +38,7 @@ The scanner layer is Python. The container runs **both Python and bash**, with a
 - **Application runtime code** (`scanner/`, `tests/`) — Python 3.12. Readable, testable, parses YAML directly, participates in CI (Black/Ruff/Bandit/pytest). Same code runs in local CLI mode and inside the container.
 - **Container scan runtime** — Python. The container invokes `python /app/scanner/scan.py ${CLIENT}`, which is the same `scan.py` the local CLI runs. There is no separate scan implementation for the container.
 - **Container I/O wrapper** (`docker/entrypoint.sh`) — bash. Handles `CLOUD_PROVIDER` dispatch, `download_config`, and `upload_results` using cloud CLIs (`gcloud`, `aws`, `az`) which are bash-native. The wrapper does not parse YAML and does not loop over profiles. After cloud I/O setup, the wrapper invokes `scan.py`.
-- **Bootstrap / developer tooling** (`setup.sh`, pre-commit hooks) — bash. One-time setup that runs before any Python environment exists.
+- **Bootstrap / developer tooling** (pre-commit hooks) — bash. One-time setup that runs before any Python environment exists.
 
 ### Deployment Modes
 
@@ -297,6 +297,10 @@ leansecurity-nuclei/
 ├── scanner/                          ← LOCAL CLI (baseline — Python + Nuclei)
 │   ├── scan.py                       ← python scanner/scan.py <client>
 │   ├── nuclei_helpers.py             ← YAML parsing + command builder
+│   ├── nuclei_json_converter.py      ← Raw-JSONL → v1 envelope transformation
+│   ├── nuclei_convert_tool.py        ← Standalone re-consolidation CLI
+│   ├── upload_to_gcs.py              ← Manual GCS push CLI (consultant workflow)
+│   ├── validate_profiles.py          ← Nuclei template-tag validator
 │   └── profiles/
 │       └── profiles.yaml             ← Source of truth for scan config
 │
@@ -329,14 +333,17 @@ leansecurity-nuclei/
 │       └── targets.txt               ← Used by ALL modes
 │
 ├── tests/                            ← pytest suite (scanner layer)
-│   └── test_nuclei_helpers.py
+│   ├── test_nuclei_helpers.py
+│   ├── test_nuclei_json_converter.py
+│   ├── test_container.py
+│   ├── test_upload_to_gcs.py
+│   └── validation/                   ← Validation fixtures
 │
 ├── .github/workflows/                ← Always-active CI
 │   └── ci.yaml                       ← Black + Ruff + Bandit + pytest on every push/PR
 │
 ├── pyproject.toml                    ← Poetry config — Python 3.12, pyyaml, dev tooling
 ├── poetry.lock
-├── setup.sh                          ← One-time post-clone bootstrap (bash)
 ├── .pre-commit-config.yaml           ← Black, Ruff, Bandit, pytest hooks
 ├── .gitignore                        ← Excludes results/, .terraform/, tfstate, .venv/
 └── README.md                         ← Three-mode quick start + CSFLite mapping
@@ -358,7 +365,7 @@ leansecurity-nuclei/
 ### Language Policy
 
 - **Python (application runtime):** `scanner/`, `tests/`.
-- **Bash (container entrypoint + bootstrap):** `docker/entrypoint.sh`, `setup.sh`.
+- **Bash (container entrypoint):** `docker/entrypoint.sh`.
 - **Terraform (infrastructure):** `infra/`, `deployments/<client>/*.tf`.
 - **YAML (config + CI):** `scanner/profiles/profiles.yaml`, `.github/workflows/`, `pyproject.toml` (TOML, but governed by the same dev-tooling pipeline).
 
@@ -374,11 +381,16 @@ Application runtime code is Python. Adding new shell scripts to `scanner/` is pr
 |---|---|---|
 | `scanner/scan.py` | Local CLI runner — parses profiles.yaml, invokes Nuclei via subprocess | Complete |
 | `scanner/nuclei_helpers.py` | Profile loading, command construction, Nuclei execution | Complete |
+| `scanner/nuclei_json_converter.py` | Raw-JSONL → v1 envelope transformation. Hosts `SCHEMA_VERSION`, `build_normalized_document`, `list_executed_profiles`, `consolidate_jsonl_dir` | Complete |
+| `scanner/nuclei_convert_tool.py` | Standalone re-consolidation CLI — rebuilds `result-YYYY-MM-DD.json` from existing JSONL without re-scanning | Complete |
+| `scanner/upload_to_gcs.py` | Manual GCS push CLI — uploads `results/<client>/<YYYY-MM>/` to GCS bucket. Supports the manual-push workflow in §3 Deployment Modes | Complete |
+| `scanner/validate_profiles.py` | Validates every `tags:` entry in `profiles.yaml` against the locally-installed Nuclei template library. Dev/CI tooling | Complete |
 | `scanner/profiles/profiles.yaml` | 7 CSFLite-aligned scan profile definitions | Complete |
 | `tests/test_nuclei_helpers.py` | Unit tests for helpers module | Complete |
+| `tests/test_nuclei_json_converter.py` | Unit tests for the v1 envelope contract | Complete |
+| `tests/test_upload_to_gcs.py` | Unit tests for the GCS upload helper | Complete |
 | `deployments/_example/targets.txt` | Template target list with placeholder comments | Complete |
 | `pyproject.toml`, `poetry.lock` | Python dependency management (Python 3.12, pyyaml, dev tooling) | Complete |
-| `setup.sh` | One-time post-clone bootstrap (git excludes, Poetry install, pre-commit) | Complete |
 | `.pre-commit-config.yaml` | Black, Ruff, Bandit, pytest pre-commit hooks | Complete |
 | `.github/workflows/ci.yaml` | Always-active CI — Black + Ruff + Bandit + pytest | Complete |
 | `.gitignore` | Excludes `results/`, `.terraform/`, tfstate, `.venv/` | Complete |

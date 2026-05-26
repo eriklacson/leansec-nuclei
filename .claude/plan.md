@@ -1,232 +1,98 @@
-## Plan — Normalized JSON Wrapper (sprint `update/normalize_json_wrapper`)
+# Plan — Seed Document v1.3 Consistency Cleanup
 
-For architect review before implementation. Sprint reference: `.claude/sprint.md`. Scope: `.claude/scope.md`. ADR-007 boundaries respected (scanner layer only).
+**Date:** 2026-05-26
+**Branch:** `chore/claude-metadocs-cleanup`
+**Single file touched:** `.claude/docs/LeanSecurity_Nuclei_seed_document.md`
 
----
+> Replaces the previous `update/normalize_json_wrapper` plan, which is now merged to main.
 
-### 1. File-by-file change list
+## Open questions / assumptions
 
-#### 1.1 `scanner/nuclei_json_converter.py`
+- **Assumption:** No new seed version bump (1.3 → 1.4) because this changes no contract, no design decision, and no behavior. The Change Log §12 is not extended. If the architect disagrees, bump to 1.3.1 with a "registry refresh, no contract change" entry.
+- **Assumption:** Status column in §5 for the 4 newly-documented scripts is `Complete` (all four files exist and have functional implementations in the repo today).
+- **Open:** Do `upload_to_gcs.py` and `validate_profiles.py` belong under §5 "Local CLI (baseline)" or under a new "Operator tools" subsection? I'll put them in **Local CLI** because they run from the same Python environment as `scan.py` and have no Docker/Terraform dependency. Architect can re-bucket on review.
 
-**Top of file (after imports, before helpers)** — add the module constant:
+## Edit-by-edit plan
 
-```python
-SCHEMA_VERSION = 1
+All edits to `.claude/docs/LeanSecurity_Nuclei_seed_document.md`.
+
+### Edit 1 — §1 Project Separation typos (line 26)
+
+Replace:
+> Transformation layer (conversts raw Nuclie JSONL to normalized JSON format for Conduit P2 ingest adaptor), nfrastructure modules
+
+With:
+> Transformation layer (converts raw Nuclei JSONL to normalized JSON format for Conduit P2 ingest adapter); Infrastructure modules
+
+(Use `;` to separate the two clauses cleanly. "adaptor" → "adapter" for consistency with §1 line 25 which already uses "P2 ingest adapter".)
+
+### Edit 2 — §4 Repository Structure tree (lines 295–343)
+
+**Under `scanner/`** add four entries between `nuclei_helpers.py` and the `profiles/` subdir:
+```
+├── nuclei_json_converter.py      ← Raw-JSONL → v1 envelope transformation
+├── nuclei_convert_tool.py        ← Standalone re-consolidation CLI
+├── upload_to_gcs.py              ← Manual GCS push CLI (consultant workflow)
+├── validate_profiles.py          ← Nuclei template-tag validator
 ```
 
-**Module docstring (lines 1–7)** — broaden per sprint Task 7. Replace:
-
-> "Converts the raw JSON Nuclei produces into the simplified, seed-document shape consumed by the SLO tracking component."
-
-with:
-
-> "Converts the raw JSON Nuclei produces into the v1 normalized JSON contract consumed by external integrations. The reference shape lives in `.claude/docs/normalized_sample.json` and the field contract lives in `Normalized JSON Output` of the seed document."
-
-(Removes the LeanSecurity-specific "SLO tracking component" reference; the wrapper is general-purpose now.)
-
-**Append after `consolidate_jsonl_dir` (currently ends at line 182):**
-
-```python
-def list_executed_profiles(directory: Path | str) -> list[str]:
-    """Return profile names derived from *.jsonl filenames in directory.
-
-    Filename convention: '<profile>_<YYYY-MM>.jsonl'. Returns the profile
-    stems (filename without the trailing '_YYYY-MM.jsonl'), sorted.
-    Raises NotADirectoryError if directory is not a directory.
-    """
-    # Guard: same contract as consolidate_jsonl_dir so callers see one
-    # predictable failure mode when the path is wrong.
-    dir_path = Path(directory)
-    if not dir_path.is_dir():
-        raise NotADirectoryError(f"Not a directory: {dir_path}")
-
-    # Strip the trailing _YYYY-MM segment when it matches the canonical
-    # filename convention; otherwise fall back to the bare stem so stray
-    # *.jsonl files do not crash the pipeline.
-    suffix_re = re.compile(r"_\d{4}-\d{2}$")
-
-    profiles: set[str] = set()
-    for jsonl_file in dir_path.glob("*.jsonl"):
-        stem = jsonl_file.stem
-        profiles.add(suffix_re.sub("", stem))
-
-    return sorted(profiles)
-
-
-def build_normalized_document(
-    findings: list[dict],
-    client: str,
-    run_date: str,
-    profiles_executed: list[str],
-) -> dict:
-    """Wrap a list of normalized findings into the v1 contract envelope.
-
-    Returns a dict with `schema_version`, `scan_run`, and `findings` keys
-    matching the external integration contract.
-    """
-    # Source schema_version from the module constant so updates flow from
-    # one place — prevents accidental hardcoding drift across helpers.
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "scan_run": {
-            "client": client,
-            "run_date": run_date,
-            "profiles_executed": sorted(profiles_executed),
-            "findings_count": len(findings),
-        },
-        "findings": findings,
-    }
+**Under `tests/`** replace the single-line stub with:
 ```
-
-Add `import re` near the existing `import json` line.
-
-**Function is pure**: no I/O, no `datetime`, no env access. `sorted(profiles_executed)` returns a new list, leaving the caller's input untouched.
-
-#### 1.2 `scanner/scan.py`
-
-**Line 23** — extend the existing import:
-
-```python
-from nuclei_json_converter import (  # noqa: E402
-    build_normalized_document,
-    consolidate_jsonl_dir,
-    list_executed_profiles,
-)
+├── tests/                            ← pytest suite (scanner layer)
+│   ├── test_nuclei_helpers.py
+│   ├── test_nuclei_json_converter.py
+│   ├── test_container.py
+│   ├── test_upload_to_gcs.py
+│   └── validation/                   ← Validation fixtures
 ```
+(`test_container.py` is already in §5 Local Docker; listing it in §4 tree completes the picture.)
 
-**Variable-name collision flag** — `scan.py:89` already uses `findings` as an `int` line-tally counter. Sprint Task 3 instructs to rename the *list* `consolidated` → `findings`, which collides. Resolution: rename the existing `int` counter to `findings_count` (lines 89–92, 115). This aligns with the wrapper's own `findings_count` field name — semantically consistent.
+**Remove** the `├── setup.sh` line entirely.
 
-**Lines 98–110** (the consolidate-and-write block) — replace with:
+### Edit 3 — §4 Language Policy bash bullet (line 361)
 
-```python
-consolidated_path = None
-try:
-    # Walk out_dir, normalize every JSONL line, concatenate to one list.
-    findings = consolidate_jsonl_dir(out_dir)
+Replace:
+> **Bash (container entrypoint + bootstrap):** `docker/entrypoint.sh`, `setup.sh`.
 
-    # Derive profile names from the *.jsonl files actually written by
-    # this scan so the envelope reflects what ran, not what was defined.
-    profiles_executed = list_executed_profiles(out_dir)
+With:
+> **Bash (container entrypoint):** `docker/entrypoint.sh`.
 
-    # Filename uses today's date so multiple runs in the same month
-    # produce distinct files instead of silently overwriting.
-    run_date = datetime.now().strftime("%Y-%m-%d")
+### Edit 4 — §5 Local CLI Component Registry (lines 373–386)
 
-    # Wrap findings in the v1 envelope before serializing.
-    document = build_normalized_document(
-        findings=findings,
-        client=client,
-        run_date=run_date,
-        profiles_executed=profiles_executed,
-    )
+**Remove** the `setup.sh` row.
 
-    consolidated_path = out_dir / f"result-{run_date}.json"
-    consolidated_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
-except Exception as exc:  # noqa: BLE001
-    # Catch-all is deliberate: report and continue. Operator still
-    # sees the scan summary and the raw JSONL is still on disk.
-    print(f"\nWarning: failed to write consolidated JSON: {exc}")
-```
+**Add** six new rows after `tests/test_nuclei_helpers.py`:
 
-The existing summary print (`f"Total findings: {findings}"` → updates to `findings_count`) still works because it tallies non-blank JSONL lines, independent of the wrapper.
+| Component | Source/Domain | Status |
+|---|---|---|
+| `scanner/nuclei_json_converter.py` | Raw-JSONL → v1 envelope transformation. Hosts `SCHEMA_VERSION`, `build_normalized_document`, `list_executed_profiles`, `consolidate_jsonl_dir` | Complete |
+| `scanner/nuclei_convert_tool.py` | Standalone re-consolidation CLI — rebuilds `result-YYYY-MM-DD.json` from existing JSONL without re-scanning | Complete |
+| `scanner/upload_to_gcs.py` | Manual GCS push CLI — uploads `results/<client>/<YYYY-MM>/` to GCS bucket. Supports the manual-push workflow in §3 Deployment Modes | Complete |
+| `scanner/validate_profiles.py` | Validates every `tags:` entry in `profiles.yaml` against the locally-installed Nuclei template library. Dev/CI tooling | Complete |
+| `tests/test_nuclei_json_converter.py` | Unit tests for the v1 envelope contract | Complete |
+| `tests/test_upload_to_gcs.py` | Unit tests for the GCS upload helper | Complete |
 
-#### 1.3 `scanner/nuclei_convert_tool.py`
+### Edit 5 — §10 Locked Design Decisions
 
-**Line 23** — extend the import to add `build_normalized_document` and `list_executed_profiles`.
+No edit. The setup.sh policy is not a locked decision in §10, so removing the file does not change §10.
 
-**Lines 70–81** — apply the same wrapper logic:
+## What I will NOT touch
 
-```python
-findings = consolidate_jsonl_dir(input_dir)
-profiles_executed = list_executed_profiles(input_dir)
+- §3 Interface Contracts — already correct after v1.3 fold.
+- §6 Scan Profiles, §7 CSFLite Control Mapping — verified matches `profiles.yaml`.
+- §10 Locked Design Decisions, §11 What This Project Does Not Own — no contract change.
+- §12 Change Log — no version bump per assumption above.
+- The two delta files in `.claude/docs/` — both correctly marked APPLIED, retained for history.
+- Any scanner/, docker/, infra/, deployments/, tests/, .github/ file.
 
-run_date = datetime.now().strftime("%Y-%m-%d")
-document = build_normalized_document(
-    findings=findings,
-    client=args.client,
-    run_date=run_date,
-    profiles_executed=profiles_executed,
-)
+## Verification step (after edits)
 
-output_path = input_dir / f"result-{run_date}.json"
-output_path.write_text(json.dumps(document, indent=2), encoding="utf-8")
+1. Re-grep the seed for `setup.sh` → expect zero matches.
+2. Re-grep the seed for `nuclei_json_converter`, `nuclei_convert_tool`, `upload_to_gcs`, `validate_profiles` → each should appear in §4 tree AND §5 registry (plus pre-existing §3 mentions for the first two).
+3. Re-grep the seed for `conversts`, `Nuclie`, `nfrastructure`, `adaptor` → expect zero matches.
+4. Visually skim §4 tree to confirm directory ordering still reads cleanly.
+5. Diff against `main` to confirm only the seed document and the two `.claude/` metadocs changed.
 
-print(
-    f"Wrote v1 normalized document with {len(findings)} finding(s) "
-    f"across {len(profiles_executed)} profile(s)"
-)
-print(f"Output: {output_path}")
-```
+## Report after implementation
 
-`run_date` stays `datetime.now()` (the tool's purpose is to produce a fresh run-date-stamped consolidated file from existing JSONL, per sprint Task 4).
-
-#### 1.4 `tests/test_nuclei_json_converter.py`
-
-Existing tests stay unchanged — `_convert_entry`, `convert_nuclei_raw`, `convert_nuclei_jsonl_file`, and `consolidate_jsonl_dir` still return finding-level data.
-
-Add 10 new test functions (9 unit + 1 round-trip integration), all per sprint Tasks 5 and 6:
-
-| # | Test | Asserts |
-|---|------|---------|
-| 1 | `test_build_normalized_document_basic_shape` | Keys are exactly `{schema_version, scan_run, findings}`; `schema_version == 1`; `findings` is the input list. |
-| 2 | `test_build_normalized_document_scan_run_fields` | `scan_run` has exactly `{client, run_date, profiles_executed, findings_count}`; values match inputs; `findings_count == len(findings)`. |
-| 3 | `test_build_normalized_document_sorts_profiles` | Input `["zeta","alpha","mike"]` → output `["alpha","mike","zeta"]`. |
-| 4 | `test_build_normalized_document_empty_findings` | `findings=[]` → `findings_count == 0`, `findings == []`. |
-| 5 | `test_build_normalized_document_uses_module_constant` | Output `schema_version == nuclei_json_converter.SCHEMA_VERSION`. |
-| 6 | `test_list_executed_profiles_strips_month_suffix` | tmp_path with three canonical-named files → sorted bare stems. |
-| 7 | `test_list_executed_profiles_handles_irregular_filenames` | Mix canonical + bare `weird-leftover.jsonl` → both stems present, no raise. |
-| 8 | `test_list_executed_profiles_empty_directory` | Empty tmp_path → `[]`. |
-| 9 | `test_list_executed_profiles_not_a_directory` | Non-existent path → `NotADirectoryError`. |
-| 10 | `test_consolidate_and_wrap_round_trip` | Two JSONL files (3 findings total) → full envelope assertions including finding-shape sanity check. |
-
-All tests use the existing `sys.path.insert(...)` import pattern. No new dependencies.
-
----
-
-### 2. Order of execution
-
-1. Add `SCHEMA_VERSION`, `import re`, `list_executed_profiles`, `build_normalized_document`, and docstring update to `nuclei_json_converter.py`.
-2. Add the new tests in `test_nuclei_json_converter.py` and run pytest — confirm they pass against the converter changes alone (no scan.py / convert_tool.py changes yet).
-3. Update `scan.py` (rename `findings` int → `findings_count`, plug in wrapper logic, extend import).
-4. Update `nuclei_convert_tool.py` (extend import, plug in wrapper logic, update summary).
-5. Run full gate: `black --check .` → `ruff check .` → `bandit -r . --severity-level high` → `pytest`.
-6. Manual end-to-end on an existing client deployment to confirm the on-disk shape matches the contract.
-
-This order means the test suite is green at every commit boundary, and any breakage in `scan.py` / `nuclei_convert_tool.py` is caught by the new round-trip test before integration.
-
----
-
-### 3. Risks and mitigations
-
-| Risk | Mitigation |
-|---|---|
-| `findings` name collision in `scan.py` (existing `int`, new `list`). | Rename existing counter to `findings_count` — matches the wrapper's field name and removes the collision. Flagged explicitly to the architect since sprint Task 3 does not name this conflict. |
-| `list_executed_profiles` glob picks up `result-YYYY-MM-DD.json`? | `.glob("*.jsonl")` only matches `.jsonl` files. The wrapper JSON (`.json`) is not matched. No issue. |
-| Re-running `scan.py` in the same month overwrites the previous day's `result-YYYY-MM-DD.json`? | Same behavior as today — filename is run-date-stamped, so same-day re-runs overwrite. Not in scope to change. |
-| Stray `.jsonl` left in a results dir from a prior run with a different filename convention. | `list_executed_profiles` uses defensive regex (`r"_\d{4}-\d{2}$"`) and falls back to the bare stem. The set dedupe handles duplicate stems if a stray file overlaps a canonical one. |
-| `bandit -r . --severity-level high` flag — sprint says exactly that string; CLAUDE.md `Commands` section says `bandit -r . -x ".venv,..."` (no severity flag). | Follow the sprint's verification recipe verbatim during VERIFY. Both invocations should pass since no new high-severity surface is introduced. |
-| ADR-007 boundary — could the wrapper inadvertently couple scanner to docker/infra? | The wrapper is pure data — no I/O, no env. Stays inside `scanner/`. Boundary preserved. |
-
----
-
-### 4. Assumptions (call out before implementing)
-
-1. **No existing `result-YYYY-MM-DD.json` consumers in this repo to migrate**. The sprint says the bare-array shape is retired entirely with no compat mode. Searched — no Python code in the repo reads `result-*.json` (only writes it). Confirmed safe.
-2. **`run_date` stays `datetime.now()`** in both `scan.py` and `nuclei_convert_tool.py`. Sprint Task 4 explicitly endorses this for the convert tool. The function itself stays pure (callers compute the date).
-3. **`SCHEMA_VERSION = 1` as `int`**. Sprint says "integer literal `1`" and verification step 2 specifies "integer, not string". Confirmed.
-4. **No changes to raw JSONL writes** — only the consolidation output changes. The seven per-profile `.jsonl` files are untouched.
-5. **The seed-doc §3 "Normalized JSON Output" field table is finding-level only**, not envelope-level. The new envelope keys (`schema_version`, `scan_run.*`) are not yet documented in the seed doc. The sprint does not require a seed-doc revision for this change. **Confirm with architect** whether a seed-doc delta is expected, or whether this lands purely as scanner-layer work.
-
----
-
-### 5. Open questions (architect to resolve)
-
-1. **Seed-doc revision** — see Assumption 5. Should this work include a delta in `.claude/docs/` documenting the v1 envelope, or defer to the next planned seed-doc rev?
-2. **Comment density on new code** — my memory has a project rule that "every code block needs a semi-pseudocode comment" overriding default no-comments policy. The plan above follows that. Confirm this rule still applies to scanner-layer code in this sprint.
-3. **CLAUDE.md path drift** (flagged in scope) — the file references `claude-project/LeanSecurity_Nuclei_Seed_Document.md` but the seed doc lives at `.claude/docs/LeanSecurity_Nuclei_seed_document.md`. Want me to fold a one-line CLAUDE.md fix into this branch, or open a separate task?
-
----
-
-### 6. Out of scope (explicit, per sprint §"Out of scope")
-
-Not touching: `scan_run.scan_started_at`, `scan_run.scan_completed_at`, `scan_run.scanner_version`, backward-compat for the bare-array shape, schema validation in the consumer direction, raw JSONL output, `profiles.yaml`, `entrypoint.sh`, Terraform, `.docx` quickstart/implementation guides.
+Write `.claude/report-claude-metadocs-cleanup.md` per CLAUDE.md step 6, summarizing edits made, verification results, and any items flagged for follow-up.
