@@ -4,13 +4,21 @@ LeanSecurity standard deployment wrapper for Nuclei external vulnerability scann
 
 ## Overview
 
-Automated Nuclei scans against client external assets. Currently supports local execution; cloud-automated deployment is planned for the next phase.
+Automated Nuclei scans against external assets. Three deployment modes share the same scanner core.
 
 | Mode | What You Need | How It Works |
 |------|---------------|--------------|
 | **Local CLI** | Nuclei installed | `./scanner/scan.py <client>` — results to local disk |
 | **Local Docker** | Docker installed | Build from `docker/Dockerfile.local`, volume-mount config |
-| **Cloud (automated)** | _Next phase_ | Terraform + Cloud Run/Scheduler — not yet available |
+| **Cloud (GCP)** | GCP project, Terraform | Cloud Run job + Cloud Scheduler. See [setup guide](docs/setup-guide.md) |
+
+### Operating model — public repo, private deployments
+
+This repository contains the reusable pipeline (scanner core, container, GCP module). **Per-client deployment configuration lives in client-controlled storage outside this repo.** `terraform apply` is run from an architect's workstation against the client GCP project; the public-repo CI never holds GCP credentials and never touches client infrastructure.
+
+The scanner image is distributed via GitHub Container Registry: [`ghcr.io/leansecurity/nuclei-scanner`](https://ghcr.io/leansecurity/nuclei-scanner). Production deployments pin to a semver tag.
+
+For the full picture: [`docs/gcp_architecture.md`](docs/gcp_architecture.md) · [module reference](infra/gcp/README.md) · [end-to-end setup guide](docs/setup-guide.md).
 
 ## Quick Start (Local CLI)
 
@@ -27,27 +35,13 @@ brew install nuclei          # macOS
 
 ### Upload Results to GCS
 
-Push the month's JSONL into the client's GCS bucket so downstream tooling (the registry and SLO tracker) can ingest it:
+Push the month's JSONL into a GCS bucket for downstream tooling. In cloud mode, the Cloud Run job uploads automatically. In local mode, push by hand:
 
 ```bash
-# One-time: authenticate
 gcloud auth login
-
-# One-time per client: copy the env template and fill in project + bucket
-cp deployments/_example/.env.example deployments/<client>/.env
-$EDITOR deployments/<client>/.env
-
-# Upload current month
-./scanner/upload_to_gcs.py <client>
-
-# Or a specific month
-./scanner/upload_to_gcs.py <client> --month 2026-04
-
-# Preview without uploading
-./scanner/upload_to_gcs.py <client> --dry-run
+gcloud storage cp results/<client>/<YYYY-MM>/*.jsonl \
+  gs://<your-bucket>/nuclei/<YYYY-MM>/
 ```
-
-The tool reads `GCP_PROJECT`, `GCS_BUCKET`, and (optional) `GCS_PREFIX` from `deployments/<client>/.env`, verifies an active `gcloud` session, and uploads every `*.jsonl` from `results/<client>/<YYYY-MM>/` to `<GCS_BUCKET>/<GCS_PREFIX>/<YYYY-MM>/`. Use `gcloud storage ls <GCS_BUCKET>/<GCS_PREFIX>/` to confirm the upload landed.
 
 ## Quick Start (Local Docker)
 
@@ -121,18 +115,39 @@ ls results/localtest/$(date +%Y-%m)/
 
 Expect hits from `baseline_web`, `owasp_top10_core`, and `transport_security` profiles. Use this as smoke-test coverage before promoting profile changes to client deployments.
 
-## Cloud Deployment — Next Phase
+## Cloud Deployment (GCP)
 
-Cloud-automated deployment (Terraform + Cloud Run job + Cloud Scheduler, ephemeral containers, IaC-managed per client) is planned for the next phase and is **not yet available**. Scaffolding under `infra/` and `infra/<vendor>/workflows/` is staged for that work but inactive — do not attempt to provision from `main` yet.
+Cloud-automated deployment runs the scanner as a Cloud Run job on a Cloud Scheduler cadence. The pipeline is architect-driven: an architect runs `terraform apply` from their workstation against the client GCP project; after that, Cloud Scheduler triggers the job autonomously.
+
+```bash
+# 1. Bootstrap the client GCP project (one-time)
+./scripts/bootstrap-gcp-client.sh <your-project-id>
+
+# 2. Copy the example folder to your private storage
+cp -r deployments/_example/ /path/to/private/<client>/
+
+# 3. Edit terraform.tfvars + backend.tf + targets.txt in your copy, then
+cd /path/to/private/<client>/
+terraform init
+terraform plan
+terraform apply
+```
+
+The scanner image is pulled from GHCR (`ghcr.io/leansecurity/nuclei-scanner`). Production deployments pin to a semver tag. The full walkthrough — including troubleshooting for the common failure modes (API not enabled, IAM denied, image pull failure, etc.) — is in [`docs/setup-guide.md`](docs/setup-guide.md).
+
+AWS and Azure modules under `infra/aws/` and `infra/azure/` are stubs and not part of the current activation.
 
 ## Repository Structure
 
 ```
 leansecurity-nuclei/
 ├── scanner/                    # Nuclei CLI runner + profiles (vendor-agnostic)
-├── docker/                     # Container builds (local Docker today; cloud next phase)
-├── deployments/                # Per-client config (see _example/)
-└── .github/workflows/          # Active CI/CD (ci.yaml — lint/test only)
+├── docker/                     # Container build (used by both Local Docker and Cloud modes)
+├── infra/gcp/                  # Reusable GCP Terraform module
+├── scripts/                    # Operator scripts (bootstrap-gcp-client.sh)
+├── deployments/_example/       # Deployment template (copy to private storage)
+├── docs/                       # Architecture + setup guide
+└── .github/workflows/          # CI (lint/test) + publish-image (GHCR)
 ```
 
 ## CSFLite Control Coverage

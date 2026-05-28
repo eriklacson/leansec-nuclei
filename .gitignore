@@ -8,8 +8,11 @@
 # Scan results (local mode)
 results/
 
-# Client deployments (redacted; do not commit)
-deployments/
+# Client deployments are private. Only the example and validation
+# templates are tracked; everything else under deployments/ is ignored.
+deployments/*
+!deployments/_example/
+!deployments/_validation/
 
 # OS
 .DS_Store
@@ -49,10 +52,4 @@ Thumbs.db
 # Claude Code project config — always tracked, overrides generic rules above
 !.claude/**/
 !.claude/**
-
-# deployment files example 
-! deployments/_example
-! deployments/_validation
-# local validation deployment files example
-! deployments/_validation/ .env.example
 

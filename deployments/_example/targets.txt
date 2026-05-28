@@ -1,8 +1,7 @@
-# Client External Targets
-# Updated: YYYY-MM-DD
-# Maintained by: LeanSecurity
+# External targets for this deployment.
+# One URL per line. Lines beginning with # are comments.
 #
-# One target per line. Lines beginning with # are comments.
+# Replace the example below with your real client targets before
+# running terraform apply.
 
-# https://app.client.com
-# https://api.client.com
+https://example.com
