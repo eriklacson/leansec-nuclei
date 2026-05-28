@@ -141,6 +141,8 @@ Images are tagged with three labels per build:
 
 Client `tfvars` should pin to a semver or SHA tag, never `:latest`. The pin is the deliberate decision point for scanner version rollout per client.
 
+For the maintainer-side procedure (one-time GHCR setup, cutting a semver release, verifying a publish, rolling back), see [`release.md`](release.md).
+
 ## 6. Per-client onboarding
 
 Onboarding a new client is a procedure run by the architect. It is mechanical, scriptable, and billable to the engagement.

@@ -133,7 +133,7 @@ terraform plan
 terraform apply
 ```
 
-The scanner image is pulled from GHCR (`ghcr.io/leansecurity/nuclei-scanner`). Production deployments pin to a semver tag. The full walkthrough — including troubleshooting for the common failure modes (API not enabled, IAM denied, image pull failure, etc.) — is in [`docs/setup-guide.md`](docs/setup-guide.md).
+The scanner image is pulled from GHCR (`ghcr.io/leansecurity/nuclei-scanner`). Production deployments pin to a semver tag. The full walkthrough — including troubleshooting for the common failure modes (API not enabled, IAM denied, image pull failure, etc.) — is in [`docs/setup-guide.md`](docs/setup-guide.md). Maintainers publishing new image versions: see [`docs/release.md`](docs/release.md).
 
 AWS and Azure modules under `infra/aws/` and `infra/azure/` are stubs and not part of the current activation.
 
