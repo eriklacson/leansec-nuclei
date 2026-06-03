@@ -1,7 +1,0 @@
-# Client External Targets
-# Updated: April 2026
-# Maintained by: LeanSecurity
-
-# vpn server and public web server.
-# flag as high risk attack vector 
-119.92.143.236

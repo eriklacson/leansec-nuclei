@@ -1,417 +1,644 @@
-# project.yaml — Local Container Rebuild
+# project.yaml — GCP Cloud Deploy activation
 #
-# Component:   docker/ (scanner container layer, Local Docker mode only)
-# Scope:       docker/Dockerfile.local + docker/entrypoint.sh (shared) + .dockerignore
-# Status:      Spec — signed off; ready for implementation
-# Supersedes:  Existing docker/Dockerfile.local, docker/entrypoint.sh
-# Depends on:  ADR-007 (Python carryover into container)
-# Defers:      docker/Dockerfile (cloud) and infra/gcp/workflows/scanner-image.yml
-#              build-context fix to a follow-up project.yaml. Cloud E2E
-#              validation is part of that follow-up.
+# This file specifies the work to be executed by Claude Code to activate the
+# GCP Cloud Automated tier of the leansecurity-nuclei pipeline. The file is
+# the source of truth for scope, deliverables, constraints, and acceptance.
+#
+# Companion document: docs/gcp_architecture.md (architecture brief, source
+# material for the markdown architecture doc deliverable). Attach the HTML
+# brief to Claude Code's working directory when executing this project.
 
-name: local-container-rebuild
-version: 0.2  # 0.1 → 0.2: open questions resolved; cloud Dockerfile descoped
-mode: build  # architecture is locked via ADR-007; this is implementation, not spec
+feature: gcp-cloud-deploy
+mode: build
+version: 1
+last_updated: 2026-05-22
 
-# ─────────────────────────────────────────────────────────────────────────────
-# WHY THIS EXISTS
-# ─────────────────────────────────────────────────────────────────────────────
-rationale: |
-  The current container layer (docker/Dockerfile, Dockerfile.local, entrypoint.sh)
-  has four concrete defects against the seed document:
+# ──────────────────────────────────────────────────────────────────────────────
+# Summary
+# ──────────────────────────────────────────────────────────────────────────────
 
-    1. COPY ../scanner/profiles/ in both Dockerfiles is invalid Docker syntax
-       and cannot succeed under any documented build context.
-    2. entrypoint.sh writes JSONL filenames (identity_, transport_, owasp_top10_)
-       that diverge from profiles.yaml profile names — the exact "drift between
-       profiles.yaml and entrypoint.sh" failure mode the seed document explicitly
-       calls a bug.
-    3. The container produces only raw JSONL. The local CLI (scan.py) produces
-       both raw JSONL and consolidated normalized JSON. Two runtimes, two
-       output shapes — violates the architectural intent that local CLI and
-       local container are interchangeable.
-    4. There is no canonical `docker run` invocation documented. Local Docker
-       mode is effectively undocumented.
+summary: |
+  Activate the GCP Cloud Automated deployment tier of the leansecurity-nuclei
+  pipeline. The Terraform module, container entrypoint, and gated CI workflows
+  exist as scaffolding but have never been validated end-to-end. This feature
+  rewrites the module to support the public-repo / private-deployments
+  topology, publishes the scanner image to GHCR, fixes two known defects,
+  ships an architect-driven onboarding runbook, and produces consumer-facing
+  documentation for the open-source release.
 
-  ADR-007 supersedes the "container entrypoint is bash, no YAML parsing"
-  locked decision. The new model: bash wrapper handles cloud I/O dispatch,
-  scan.py handles scan execution and normalization. Single source of truth
-  for scan logic across local CLI and container modes.
+  LeanSecurity owns no GCP infrastructure. The public repository contains the
+  reusable pipeline and module. Per-client deployment configuration lives in
+  client-controlled private storage. The architect runs `terraform apply` from
+  a workstation. Cloud Scheduler is the autonomous execution loop after
+  deployment.
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SCOPE
-# ─────────────────────────────────────────────────────────────────────────────
-in_scope:
-  - Rewrite docker/Dockerfile.local on python:3.12-slim base
-  - Rewrite docker/entrypoint.sh as a thin bash wrapper that invokes scan.py.
-    The file includes cloud-mode branches (gcp/aws/azure) so it works for the
-    cloud Dockerfile rebuild later, but only the local branch is exercised
-    and validated by this PR.
-  - Add .dockerignore at repo root
-  - Pin Nuclei version via build arg (NUCLEI_VERSION). Initial pin: v3.4.10
-    (verify against https://github.com/projectdiscovery/nuclei/releases
-    before merge — version may need a bump).
-  - Add UPDATE_TEMPLATES env var (default true) to make template refresh optional
-  - Document the canonical `docker run` invocation in README
-  - Add tests/test_container.py — local-mode smoke tests, gated on Docker
-    availability
-  - Author decisions/ADR-007-python-in-container.md (already drafted; ships
-    in this PR)
+# ──────────────────────────────────────────────────────────────────────────────
+# Decisions to confirm before execution
+#
+# These are Claude's recommended defaults. The architect should confirm or
+# override each before Claude Code begins execution. All implementations
+# below assume these decisions hold.
+# ──────────────────────────────────────────────────────────────────────────────
 
-out_of_scope:
-  - docker/Dockerfile (cloud image) — explicitly deferred to a follow-up
-    project.yaml. Current cloud Dockerfile remains in repo as-is until the
-    follow-up PR rebuilds it alongside cloud E2E validation.
-  - infra/gcp/workflows/scanner-image.yml build-context fix — deferred with
-    the cloud Dockerfile rebuild. The workflow currently builds with
-    `docker build ... -f docker/Dockerfile docker/` (context = docker/).
-    That context cannot resolve `COPY scanner/` paths, so the workflow will
-    break against any rebuilt cloud Dockerfile. Fix lands in the same PR
-    that rebuilds the cloud Dockerfile, not before.
-  - Cloud-mode end-to-end validation (Cloud Run job + Cloud Scheduler +
-    Conduit ingest) — handled by the cloud follow-up.
-  - vmctl container (docker/Dockerfile.vmctl) — separate component, separate
-    spec.
-  - AWS/Azure end-to-end validation. Entrypoint case blocks for aws/azure
-    are present in the rewritten entrypoint.sh but unexercised by this PR's
-    test suite.
-  - Conduit intake bucket path migration (ADR-006) — Conduit-owned,
-    cross-project.
-  - Multi-stage build / single-Dockerfile collapse — explicitly rejected;
-    keep Dockerfile.local and Dockerfile as separate files.
-  - Local Quickstart .docx update — per the system instruction "Implementation
-    Guide and Local Quickstart are pending re-draft after the SLO tracking
-    component is scoped." A markdown delta may be drafted alongside this PR
-    for the eventual re-draft, but the .docx itself is not touched.
+decisions_to_confirm:
 
-# ─────────────────────────────────────────────────────────────────────────────
-# DELIVERABLES
-# ─────────────────────────────────────────────────────────────────────────────
-deliverables:
+  - id: image_tag_scheme
+    decision: |
+      Publish three tags per build: `:latest` (main branch HEAD), `:<short-sha>`
+      (immutable per-commit), and `:v1.2.3` (on Git tag push, semver).
+      Recommended pin for production deployments is the semver tag.
+    rationale: |
+      All three are zero marginal cost in the same workflow. Each serves a
+      distinct purpose: `latest` for experimentation, `sha` for forensic
+      pinning, semver for production. Limiting to a subset removes optionality
+      without simplifying anything meaningful.
 
-  - path: docker/Dockerfile.local
-    description: |
-      Lightweight image for consultant local validation. python:3.12-slim base,
-      Nuclei binary installed at pinned version, scanner/ code copied in,
-      pyyaml installed via pip. No cloud CLIs.
-    constraints:
-      - Base image MUST be python:3.12-slim (matches planned vmctl base)
-      - Nuclei version MUST be pinned via ARG NUCLEI_VERSION; initial default
-        is v3.4.10 (verify before merge)
-      - MUST NOT install Poetry — runtime image uses pip for pyyaml only
-      - MUST NOT install gcloud, aws-cli, or az — those belong in Dockerfile only
-      - Working directory MUST be /app
-      - scanner/ MUST be copied to /app/scanner/
-      - profiles.yaml is baked in via scanner/profiles/profiles.yaml — no
-        runtime download
-      - ENTRYPOINT MUST be the shared docker/entrypoint.sh
-      - VOLUME declarations MUST be /app/deployments and /app/results
-      - Build context MUST be repo root: `docker build -f docker/Dockerfile.local .`
+  - id: ghcr_image_name
+    decision: ghcr.io/leansecurity/leansec-nuclei
+    rationale: |
+      Names the artifact by its role (scanner), not the repo (which contains
+      more than just the scanner image). Better discoverability for open-source
+      consumers searching GHCR for "nuclei scanner."
 
-  - path: docker/entrypoint.sh
-    description: |
-      Bash wrapper. Validates required environment, dispatches cloud I/O for
-      targets.txt download / results upload, invokes scan.py for the actual
-      scan. Branches on CLOUD_PROVIDER. Cloud branches present but unexercised
-      by this PR.
-    constraints:
-      - MUST stay bash (#!/bin/bash, set -euo pipefail)
-      - MUST validate CLIENT env var is set; exit 1 with clear message otherwise
-      - MUST validate CLOUD_PROVIDER is one of local/gcp/aws/azure; exit 1 otherwise
-      - MUST NOT parse YAML (parsing remains exclusive to nuclei_helpers.py)
-      - MUST NOT hardcode any nuclei flags (those live in profiles.yaml,
-        executed by scan.py via nuclei_helpers.build_nuclei_cmd)
-      - MUST NOT loop over profiles in bash — scan.py handles the loop and
-        the per-profile try/except
-      - download_config MUST fetch only targets.txt; profiles.yaml is baked in
-      - upload_results MUST upload both *.jsonl and result-*.json (the new
-        normalized JSON output from scan.py)
-      - For CLOUD_PROVIDER=local, both download_config and upload_results
-        are no-ops; volumes do the work
-      - UPDATE_TEMPLATES env var (default "true") gates `nuclei -update-templates`
-      - MUST exit non-zero only if scan.py itself raises; per-profile failures
-        are scan.py's responsibility (already wrapped in try/except per the
-        scanner contract)
-      - File MUST reference ADR-007 in its header comment
+  - id: bootstrap_delivery
+    decision: Executable bash script at scripts/bootstrap-gcp-client.sh
+    rationale: |
+      Repeatability matters more than visibility. Architects will run this
+      multiple times across engagements; a script ensures consistent execution.
+      The script is referenced from infra/gcp/README.md and the setup guide.
 
-  - path: .dockerignore
-    description: |
-      At repo root. Excludes results/, .git/, .venv/, __pycache__,
-      live deployments/<client>/ directories, and other non-image artifacts
-      from the build context.
-    constraints:
-      - MUST exclude results/
-      - MUST exclude .git/, .github/
-      - MUST exclude .venv/, venv/, __pycache__/, *.pyc
-      - MUST exclude all of deployments/ EXCEPT deployments/_example/ —
-        live client target lists are mounted at run time, never baked into
-        the image
-      - MUST exclude infra/, tests/, docs/, *.docx
-      - MUST exclude pyproject.toml and poetry.lock — runtime image uses pip
+  - id: existing_scanner_image_workflow
+    decision: |
+      Delete infra/gcp/workflows/scanner-image.yml entirely. Write
+      .github/workflows/publish-image.yaml from scratch — the old workflow
+      assumed per-client Artifact Registry destinations which no longer apply.
+    rationale: |
+      Repurposing a workflow built for a different topology creates more
+      complexity than starting clean. The new workflow's logic (single build,
+      single push to GHCR) is materially simpler than the old (matrix push to
+      N registries).
 
-  - path: tests/test_container.py
-    description: |
-      Smoke tests that exercise the built local image. Verifies build success,
-      entrypoint validation, and scan execution against a mounted deployments/
-      directory. Local-mode only; cloud-mode branches are unexercised here.
-    constraints:
-      - MUST be skippable when Docker is not available (pytest skip marker
-        on the entire module)
-      - MUST build the image once per session (pytest fixture, session scope)
-      - MUST verify image builds without error
-      - MUST verify nuclei -version returns the pinned NUCLEI_VERSION
-      - MUST verify python --version returns 3.12.x
-      - MUST verify profiles.yaml is present at /app/scanner/profiles/profiles.yaml
-        inside the image
-      - MUST verify container exits non-zero when CLIENT env var is missing
-      - MUST verify container exits non-zero on unsupported CLOUD_PROVIDER
-      - MUST verify container exits non-zero when CLIENT references a
-        non-existent deployment directory
-      - MUST verify container produces *.jsonl and result-*.json under
-        results/<client>/YYYY-MM/ when run against an unreachable-but-valid
-        target (port 1 on 127.0.0.1) — exercises the full
-        entrypoint → scan.py → output path without requiring a network
-        fixture
-      - MUST NOT make outbound network requests in CI beyond the build's
-        Nuclei binary download. UPDATE_TEMPLATES=false in tests.
+  - id: ar_mirror_flag
+    decision: |
+      Variable name `enable_ar_mirror` (default `false`). When true, the
+      module provisions a google_artifact_registry_repository in the client
+      project. The architect's onboarding then includes a manual step to
+      `docker pull` from GHCR and re-tag/push to the client AR before
+      `terraform apply` of resources that reference it.
+    rationale: |
+      Default off because GHCR is the canonical distribution channel and most
+      clients won't need a mirror. Opt-in for clients with air-gapped network
+      policies or compliance requirements that mandate registry locality.
 
-  - path: README.md
-    description: Add canonical Local Docker section parallel to Local CLI.
-    constraints:
-      - MUST show: docker build -f docker/Dockerfile.local -t leansecurity/nuclei-scanner:local .
-      - MUST show: docker run with -e CLIENT=<client>, -v deployments/, -v results/
-      - MUST clarify that local CLI and local Docker are equivalent in output
-      - MUST note that profiles.yaml is baked into the image (rebuild required
-        to change profiles)
-      - MUST link to decisions/ADR-007-python-in-container.md
+  - id: seed_document_locked_decisions
+    decision: |
+      Three new locked design decisions appended to the seed document, in the
+      exact wording below. These are added by Claude Code as part of the
+      documentation workstream.
+    text:
+      - "Public-repo, private-deployment topology. The public repository
+         contains the reusable pipeline and module. Per-client deployment
+         configuration lives in client-controlled storage outside the public
+         repository."
+      - "GHCR is the scanner image distribution channel. The image is built
+         from the public repository and published to
+         ghcr.io/leansecurity/leansec-nuclei. Clients pull from GHCR directly
+         or mirror into their own Artifact Registry."
+      - "Cloud-side execution is architect-driven, not CI-driven. terraform
+         apply runs from the architect's workstation against the client GCP
+         project. Public-repo CI does not hold GCP credentials and never
+         touches client infrastructure."
 
-  - path: decisions/ADR-007-python-in-container.md
-    description: |
-      Architecture decision record superseding the seed document's "Container
-      entrypoint is bash, no YAML parsing" locked decision. Already drafted;
-      ships in this PR.
-    constraints:
-      - MUST be committed before or with the code changes
-      - MUST reference the seed document section it supersedes
-      - MUST be acknowledged in the next seed document revision (§10
-        Locked Design Decisions). The seed-document v1.2 delta is drafted
-        separately and is NOT part of this PR.
+# ──────────────────────────────────────────────────────────────────────────────
+# Feature-wide constraints
+#
+# These apply to every workstream. Violations are blockers.
+# ──────────────────────────────────────────────────────────────────────────────
 
-# ─────────────────────────────────────────────────────────────────────────────
-# INTERFACE CONTRACTS
-# ─────────────────────────────────────────────────────────────────────────────
-contracts:
-
-  environment_variables:
-    required:
-      CLIENT:
-        description: Client deployment name; matches a directory under deployments/
-        validated_at: entrypoint start (exit 1 if missing)
-    optional:
-      CLOUD_PROVIDER:
-        default: local
-        values: [local, gcp, aws, azure]
-      CONFIG_BUCKET:
-        description: |
-          Cloud storage path for targets.txt (cloud modes only). Required
-          when CLOUD_PROVIDER != local; entrypoint exits 1 if missing.
-      RESULTS_BUCKET:
-        description: |
-          Cloud storage path for results upload (cloud modes only). Required
-          when CLOUD_PROVIDER != local; entrypoint exits 1 if missing.
-      TARGETS_PATH:
-        default: targets/targets.txt
-        description: Path to targets.txt within CONFIG_BUCKET (cloud modes only)
-      UPDATE_TEMPLATES:
-        default: "true"
-        description: Whether to run `nuclei -update-templates` at container start
-    removed:
-      PROFILES_PATH:
-        rationale: |
-          profiles.yaml is now baked into the image at build time. The image
-          rebuild on profiles.yaml change is already wired in
-          infra/gcp/workflows/scanner-image.yml. Runtime download is dead weight.
-
-  volumes_local_mode:
-    deployments:
-      host: ./deployments
-      container: /app/deployments
-      mode: ro
-      purpose: Read targets.txt for the specified CLIENT
-    results:
-      host: ./results
-      container: /app/results
-      mode: rw
-      purpose: scan.py writes raw JSONL and normalized JSON here
-
-  volumes_cloud_mode:
-    description: |
-      Cloud modes do not use volume mounts. targets.txt is fetched from
-      CONFIG_BUCKET via download_config. Results are uploaded to RESULTS_BUCKET
-      via upload_results. /app/deployments and /app/results are populated by
-      the entrypoint at runtime.
-
-  invocation:
-    local_cli_equivalent: poetry run python scanner/scan.py <client>
-    container_local: |
-      docker run --rm \
-        -e CLIENT=<client> \
-        -v "$(pwd)/deployments:/app/deployments:ro" \
-        -v "$(pwd)/results:/app/results" \
-        leansecurity/nuclei-scanner:local
-    container_cloud: |
-      Out of scope for this project.yaml. Specced in the cloud follow-up.
-
-  output:
-    raw_jsonl: results/<client>/YYYY-MM/<profile>_YYYY-MM.jsonl
-    normalized_json: results/<client>/YYYY-MM/result-YYYY-MM-DD.json
-    parity_with_local_cli: |
-      Local CLI and local Docker MUST produce files in identical paths with
-      identical filenames. File contents MUST be functionally equivalent
-      (timestamps and similar volatile fields excepted) — vmctl, Conduit
-      ingest, and any downstream consumer MUST NOT be able to tell which
-      mode produced the output.
-
-# ─────────────────────────────────────────────────────────────────────────────
-# CONSTRAINTS — ARCHITECTURAL
-# ─────────────────────────────────────────────────────────────────────────────
 constraints:
 
-  boundary_rules_preserved:
-    - scanner/ does NOT import from docker/, infra/, or vmctl/
-    - scanner/ runtime deps remain Python 3.12, pyyaml, nuclei binary on PATH
-    - docker/ does NOT import from infra/
-    - entrypoint.sh reads environment variables only — no hardcoded client,
-      cloud, or path values
+  - id: no_client_artifacts_in_repo
+    rule: |
+      No file in this repository may contain client-identifying data: client
+      names, GCP project IDs, target lists, internal IP ranges, or any
+      configuration specific to a paying engagement. `deployments/_example/`
+      is the only deployment-shaped folder permitted; it must use placeholder
+      values throughout.
 
-  superseded_by_adr_007:
-    - "Container entrypoint is bash, no YAML parsing" — REPLACED with
-      "Container entrypoint is bash + Python; bash for cloud I/O dispatch,
-      Python for scan execution and YAML parsing"
-    - "Drift between profiles.yaml and entrypoint.sh is a bug" — REPLACED with
-      "profiles.yaml is the single source of truth; scan.py parses it; the
-      drift surface no longer exists"
+  - id: scanner_layer_unchanged
+    rule: |
+      No changes to scanner/scan.py, scanner/nuclei_helpers.py, or tests/ are
+      permitted EXCEPT for the profile-name drift fix described in build.B2.
+      The scanner layer's Python runtime, internal API, and YAML parsing
+      surface are out of scope.
 
-  reaffirmed_by_adr_007:
-    - Local first. Always. Local Docker remains a first-class deployment mode.
-    - profiles.yaml is the single source of truth for scan configuration.
-    - Ephemeral containers in cloud mode.
-    - Cloud storage is the Conduit bridge.
+  - id: progressive_deployment_pattern
+    rule: |
+      The local CLI mode (scanner/scan.py + targets.txt) must continue to
+      work unchanged throughout this feature. Validate before committing any
+      change to docker/ or infra/ that `poetry run python scanner/scan.py
+      <client>` still produces JSONL in results/<client>/YYYY-MM/.
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ACCEPTANCE CRITERIA
-# ─────────────────────────────────────────────────────────────────────────────
-acceptance_criteria:
+  - id: container_entrypoint_stays_bash
+    rule: |
+      docker/entrypoint.sh remains bash. It does not gain a Python dependency,
+      does not invoke scan.py, does not parse YAML. Profile-flag changes are
+      hardcoded in the entrypoint to match profiles.yaml names.
 
+  - id: terraform_module_parameterized
+    rule: |
+      infra/gcp/ never hardcodes client names, GCP project IDs, region values,
+      bucket names, or image paths. Everything that varies per deployment
+      comes through variables. Defaults may be set for region (asia-southeast1)
+      and schedule, but never for identity-bearing values.
+
+  - id: code_ready_scope
+    rule: |
+      Claude Code's scope ends at PR-ready code. Acceptance items marked
+      `verified_by: architect` require manual execution against a real GCP
+      project and are NOT to be attempted by Claude Code. Claude Code may
+      write helper scripts to assist architect verification but does not run
+      them against cloud infrastructure.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Workstreams
+#
+# Three workstreams with explicit dependencies. Sequential execution.
+# ──────────────────────────────────────────────────────────────────────────────
+
+workstreams:
+
+  # ════════════════════════════════════════════════════════════════════════
+  # B. Build
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: build
+    title: Implementation
+    depends_on: []
+    description: |
+      All code changes required to deliver the feature. Splits into defect
+      fixes, Terraform module rewrite, container entrypoint updates, CI/CD
+      workflow changes, bootstrap script, and _example/ updates.
+
+    deliverables:
+
+      - id: B1
+        title: Fix Terraform env block formatting
+        scope: |
+          The current infra/gcp/main.tf has malformed env blocks on the
+          google_cloud_run_v2_job resource. The RESULTS_BUCKET env value
+          appears truncated. Rewrite each env entry as a properly-formatted
+          multi-line block per the google_cloud_run_v2_job v6+ provider
+          schema.
+        files:
+          - infra/gcp/main.tf
+        acceptance:
+          - "`terraform validate` passes on infra/gcp/ with no syntax errors"
+          - "`terraform fmt -check` passes"
+          - "Each env entry on the Cloud Run job resource is a separate, complete env { name; value } block"
+
+      - id: B2
+        title: Fix profiles.yaml ↔ entrypoint.sh drift
+        scope: |
+          The container entrypoint writes JSONL files with names that do not
+          match the profile names in profiles.yaml. Update entrypoint.sh so
+          every nuclei invocation writes a file named `<profile>_YYYY-MM.jsonl`
+          where `<profile>` is the exact key from profiles.yaml.
+          Current drift: identity_*.jsonl vs identity_remote_access;
+          transport_*.jsonl vs transport_security; owasp_top10_*.jsonl vs
+          owasp_top10_core.
+        files:
+          - docker/entrypoint.sh
+          - scanner/profiles/profiles.yaml  # verify keys, do not modify
+        acceptance:
+          - "Every profile key in profiles.yaml has a matching nuclei invocation in entrypoint.sh"
+          - "Every JSONL filename written by entrypoint.sh matches a profile key exactly"
+          - "Local Docker mode (docker/Dockerfile.local + entrypoint.sh) produces JSONL with the corrected filenames"
+          - "Filenames match what scanner/scan.py produces in local CLI mode"
+
+      - id: B3
+        title: Rewrite infra/gcp/ Terraform module
+        scope: |
+          Restructure the module to support the open-source operating model.
+          Add three variables behind `count`-based conditional resource
+          provisioning. Make the scanner_image variable accept arbitrary URIs
+          (GHCR by default, AR mirror optional). Remove implicit assumption of
+          a specific Artifact Registry path. Preserve all required-variable
+          interface contracts from the seed document.
+        files:
+          - infra/gcp/main.tf
+          - infra/gcp/variables.tf
+          - infra/gcp/outputs.tf
+          - infra/gcp/versions.tf  # create if absent
+        new_variables:
+          - name: enable_scheduler
+            type: bool
+            default: true
+            description: "Provision Cloud Scheduler job + scheduler SA + invoker IAM binding"
+          - name: enable_wif
+            type: bool
+            default: false
+            description: "Provision Workload Identity Federation pool, provider, and SA binding for external CI access"
+          - name: enable_ar_mirror
+            type: bool
+            default: false
+            description: "Provision a google_artifact_registry_repository in this client project for mirroring the GHCR image"
+        scanner_image_default: ghcr.io/leansecurity/leansec-nuclei:latest  # placeholder; production deployments must pin
+        preserved_interface:
+          - "Required variables: project_id, client_name, scanner_image, targets_file"
+          - "Outputs: config_bucket_name, results_bucket_name, cloud_run_job_name, scheduler_job_name (null when scheduler disabled), scanner_service_account_email"
+        acceptance:
+          - "`terraform validate` passes"
+          - "`terraform fmt -check` passes"
+          - "Default plan (no flags overridden) produces buckets, Cloud Run job, scheduler, SAs, IAM bindings — but no AR repository and no WIF resources"
+          - "Plan with enable_scheduler=false omits scheduler resources and IAM bindings"
+          - "Plan with enable_wif=true adds WIF pool, provider, and SA binding"
+          - "Plan with enable_ar_mirror=true adds a google_artifact_registry_repository resource"
+          - "scanner_image variable accepts any string URI; no validation forcing a specific registry path"
+
+      - id: B4
+        title: Delete infra/gcp/workflows/deploy.yml
+        scope: |
+          The matrix-per-client deploy workflow is incompatible with the
+          public-repo / private-deployments topology. There is no per-client
+          deployment in the public repo for it to iterate. Delete the file.
+        files:
+          - infra/gcp/workflows/deploy.yml  # to be deleted
+        acceptance:
+          - "File does not exist in the working tree"
+
+      - id: B5
+        title: Replace scanner-image.yml with publish-image.yaml
+        scope: |
+          Delete the old workflow (per decision in
+          decisions_to_confirm.existing_scanner_image_workflow). Write a new
+          workflow at .github/workflows/publish-image.yaml that builds the
+          scanner image and pushes to GHCR with three tags per build.
+        files:
+          - infra/gcp/workflows/scanner-image.yml  # to be deleted
+          - .github/workflows/publish-image.yaml  # new
+        triggers:
+          - "push to main, paths: docker/**, scanner/**"
+          - "push of tag v*"
+        tags_per_build:
+          - ":latest on main branch builds"
+          - ":<short-sha> every build"
+          - ":v1.2.3 on tag push only, derived from the tag name"
+        auth: "GITHUB_TOKEN (built-in, no secret registration required)"
+        acceptance:
+          - "publish-image.yaml exists and passes actionlint"
+          - "Workflow uses docker/login-action with ghcr.io and GITHUB_TOKEN"
+          - "Workflow uses docker/build-push-action with the three-tag scheme"
+          - "Old scanner-image.yml does not exist in the working tree"
+          - "Workflow syntax-validates locally via actionlint"
+          - verified_by: architect
+            check: "First successful push to ghcr.io/leansecurity/leansec-nuclei from a real CI run"
+
+      - id: B6
+        title: Write scripts/bootstrap-gcp-client.sh
+        scope: |
+          Bash script that performs the manual bootstrap steps (1-4 of
+          per-client onboarding in the architecture brief): enable required
+          APIs in the target GCP project, create the Terraform state bucket,
+          and document the IAM grant the architect needs from the client.
+          Idempotent — safe to re-run.
+        files:
+          - scripts/bootstrap-gcp-client.sh
+        script_contract:
+          inputs:
+            - "Positional arg 1: GCP project ID (required)"
+            - "Positional arg 2: GCS region for state bucket (optional, default asia-southeast1)"
+            - "Positional arg 3: state bucket name (optional, default ${project_id}-tfstate-leansecurity-nuclei)"
+          behavior:
+            - "Set active gcloud project to arg 1"
+            - "Enable required APIs (run, storage, iam — and conditionally cloudscheduler, iamcredentials, sts, artifactregistry based on flags)"
+            - "Create GCS state bucket if absent, with versioning enabled"
+            - "Print the IAM roles the architect needs the client admin to grant"
+            - "Print next steps (clone _example, populate tfvars, run terraform init)"
+          exit_codes:
+            - "0 on success or no-op"
+            - "Non-zero on gcloud failure with clear error context"
+        constraints:
+          - "Bash 4+ compatible (no zsh-isms)"
+          - "Set -euo pipefail at top"
+          - "shellcheck passes with no errors"
+          - "No client-identifying defaults"
+        acceptance:
+          - "Script exists and is executable (chmod +x)"
+          - "shellcheck scripts/bootstrap-gcp-client.sh passes"
+          - "Running with no args prints usage and exits non-zero"
+          - "Running with --help prints usage and exits 0"
+          - "Script header comment documents purpose, inputs, prerequisites"
+          - verified_by: architect
+            check: "Script executes cleanly against a fresh GCP test project, enables APIs, and creates a working state bucket"
+
+      - id: B7
+        title: Update deployments/_example/
+        scope: |
+          Refresh the example deployment folder to reflect the new module
+          shape (GHCR image path, new flags, source ref to the public module).
+          This is documentation-by-example for open-source consumers, not a
+          live deployment.
+        files:
+          - deployments/_example/main.tf
+          - deployments/_example/terraform.tfvars
+          - deployments/_example/backend.tf
+          - deployments/_example/targets.txt
+          - deployments/_example/README.md  # create if absent
+        content_requirements:
+          - "main.tf references the module via a Git source ref: source = \"git::https://github.com/leansecurity/leansecurity-nuclei.git//infra/gcp?ref=v1.0.0\""
+          - "scanner_image in tfvars pins to a semver tag (use v1.0.0 as placeholder)"
+          - "All values that would identify a real client use the placeholder <client> or example.com"
+          - "README.md in _example/ explains: this is a template, copy to your private storage, do not deploy from this folder directly"
+        acceptance:
+          - "No file contains client-identifying data"
+          - "main.tf passes terraform validate when copied to a fresh directory and terraform init is run"
+          - "README.md explicitly states the folder is a template not a deployment"
+
+      - id: B8
+        title: Remove deployments/mdi/ placeholder
+        scope: |
+          The deployments/mdi/ folder is a placeholder that contradicts the
+          public-repo topology (and is gitignored, which contradicts the CI
+          auto-discovery model). Remove it from the repo. The corresponding
+          .gitignore entry should also be removed.
+        files:
+          - deployments/mdi/  # to be deleted
+          - .gitignore  # remove the deployments/mdi/ line
+        acceptance:
+          - "deployments/mdi/ does not exist in the working tree"
+          - "No entry referencing deployments/mdi in .gitignore"
+          - "`git status` is clean after the removal commit"
+
+    workstream_acceptance:
+      - "All deliverables B1-B8 acceptance criteria pass"
+      - "`poetry run black --check . && poetry run ruff check . && poetry run bandit -r . --severity-level high && poetry run pytest` passes"
+      - "`terraform validate` and `terraform fmt -check` pass on infra/gcp/"
+      - "`actionlint .github/workflows/*.yaml` passes"
+      - "`shellcheck` passes on all bash scripts in scripts/ and docker/"
+      - "Local CLI mode (poetry run python scanner/scan.py <client>) still produces correctly-named JSONL files"
+      - "Local Docker mode (docker run with CLOUD_PROVIDER=local) still produces correctly-named JSONL files"
+
+  # ════════════════════════════════════════════════════════════════════════
+  # D. Documentation
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: documentation
+    title: Documentation
+    depends_on: [build]
+    description: |
+      Documentation deliverables for the open-source release. Written for
+      the open-source consumer (not LeanSecurity-internal). All docs reflect
+      the actual final shape of the implementation produced in the build
+      workstream — not predicted shape.
+
+    deliverables:
+
+      - id: D1
+        title: Update root README.md
+        scope: |
+          Remove the "not yet available" framing from the cloud-deployment
+          section. Document the public-repo / private-deployments topology
+          briefly. Add cross-links to the architecture doc, setup guide, and
+          module README. Preserve existing local CLI and Docker mode
+          documentation.
+        files:
+          - README.md
+        required_sections:
+          - "Cloud-automated mode section (replaces the 'not yet available' notice)"
+          - "Operating model paragraph: public repo, private deployments, architect-driven"
+          - "Links: → docs/setup-guide.md, → docs/gcp_architecture.md, → infra/gcp/README.md"
+          - "Image distribution note: ghcr.io/leansecurity/leansec-nuclei"
+        constraints:
+          - "Existing local CLI documentation preserved unchanged"
+          - "No client-identifying examples; all examples use <your-client> or example.com"
+          - "Cloud-mode section is concise — links out to detailed docs rather than duplicating them"
+        acceptance:
+          - "README.md no longer contains the phrase 'not yet available' in any cloud context"
+          - "All four cross-links (setup-guide, gcp_architecture, infra/gcp/README, GHCR) resolve to existing files or valid URLs"
+          - "Reading README.md alone, an open-source consumer understands what cloud mode does and where to go next"
+
+      - id: D2
+        title: Write infra/gcp/README.md (module reference)
+        scope: |
+          Module-level reference documentation. Reads like Terraform Registry
+          module docs: purpose, required variables, optional variables,
+          outputs, examples, prerequisites. Brief mention of the bootstrap
+          script with a link to its location.
+        files:
+          - infra/gcp/README.md
+        required_sections:
+          - "Purpose (one paragraph)"
+          - "Prerequisites (gcloud auth, IAM, bootstrap script)"
+          - "Required variables (with type, description)"
+          - "Optional variables (enable_scheduler, enable_wif, enable_ar_mirror, region, schedule)"
+          - "Outputs"
+          - "Example usage (calling the module from a private deployment folder)"
+          - "Flag semantics: when to enable WIF, when to enable AR mirror, etc."
+        constraints:
+          - "Variable tables match the actual variables.tf produced in B3"
+          - "Output tables match the actual outputs.tf produced in B3"
+          - "All examples use placeholder values"
+        acceptance:
+          - "Every variable in variables.tf has a row in the README variable table"
+          - "Every output in outputs.tf has a row in the README output table"
+          - "Example main.tf in the README is copy-pasteable into a private deployment folder and parses cleanly"
+
+      - id: D3
+        title: Write docs/gcp_architecture.md
+        scope: |
+          Distill the GCP cloud deploy architecture brief (provided as an
+          attached HTML file) into a permanent markdown document in the repo.
+          Convert SVG diagrams to mermaid where feasible, otherwise reference
+          the source brief. Strip sections that are open-question or
+          decision-pending (the brief's §10 has no place in a settled doc).
+          Add a "see also" footer linking to README, module reference, and
+          setup guide.
+        files:
+          - docs/gcp_architecture.md
+        source: "gcp-cloud-deploy-brief.html (architect provides as input artifact)"
+        required_sections:
+          - "Context and intent"
+          - "Operating model — public repo, private deployments"
+          - "Runtime scan execution flow"
+          - "Module flags (enable_scheduler, enable_wif, enable_ar_mirror)"
+          - "Public repo CI/CD model"
+          - "Per-client onboarding workflow"
+          - "See also (cross-links)"
+        sections_to_omit:
+          - "Brief's §7 (known defects — fixed in this feature, no longer relevant to the canonical doc)"
+          - "Brief's §8 (scope boundary — feature-specific, not a permanent reference)"
+          - "Brief's §9 (acceptance criteria — feature-specific)"
+          - "Brief's §10 (open decisions — resolved by the time this is written)"
+        constraints:
+          - "Diagrams converted to mermaid where the diagram is structurally simple"
+          - "Where mermaid cannot represent the diagram, embed the SVG inline"
+          - "No reference to LeanSecurity-internal concepts (Conduit references stay because Conduit is mentioned in the open-source seed document as the downstream consumer; this is public information)"
+        acceptance:
+          - "Document renders correctly on GitHub's markdown viewer"
+          - "All cross-links resolve"
+          - "Diagrams visible and legible"
+          - "No mention of open questions, scope decisions, or implementation TODOs"
+
+    workstream_acceptance:
+      - "All deliverables D1-D3 acceptance criteria pass"
+      - "Every file referenced by every doc exists in the repo (no dead links)"
+      - "Documentation reflects the actual implementation from the build workstream — no predicted-shape drift"
+
+  # ════════════════════════════════════════════════════════════════════════
+  # S. Setup Guide
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: setup-guide
+    title: Setup Guide
+    depends_on: [build, documentation]
+    description: |
+      End-to-end setup guide for an open-source consumer who wants to deploy
+      the pipeline to their own GCP project. The "happy path" version of the
+      onboarding workflow — written for someone executing the steps, not
+      reviewing architecture. Excludes LeanSecurity-internal operational
+      details.
+
+    deliverables:
+
+      - id: S1
+        title: Write docs/setup-guide.md
+        scope: |
+          Step-by-step setup guide. Covers prerequisites, GCP project bootstrap,
+          private deployment folder creation, Terraform init/plan/apply, first
+          scan validation, and ongoing operations (changing targets, bumping
+          scanner version). Written for a competent infrastructure engineer
+          who has gcloud and terraform installed but is new to this pipeline.
+        files:
+          - docs/setup-guide.md
+        required_sections:
+          - "Prerequisites (gcloud, terraform, GCP project, IAM)"
+          - "Step 1: Bootstrap the GCP project (run scripts/bootstrap-gcp-client.sh)"
+          - "Step 2: Set up your private deployment folder (copy from _example/)"
+          - "Step 3: Configure tfvars (project_id, client_name, targets_file, scanner_image pin)"
+          - "Step 4: Configure backend.tf (point at the state bucket from step 1)"
+          - "Step 5: Populate targets.txt"
+          - "Step 6: terraform init"
+          - "Step 7: terraform plan, review"
+          - "Step 8: terraform apply"
+          - "Step 9: Trigger first scan manually (gcloud run jobs execute)"
+          - "Step 10: Verify JSONL output in the results bucket"
+          - "Step 11: Confirm Cloud Scheduler shows next execution time"
+          - "Ongoing operations (changing targets, bumping image version, disabling scheduler)"
+          - "Troubleshooting (common errors and fixes)"
+        audience: |
+          Open-source consumer — anyone using this pipeline, not specifically
+          LeanSecurity. No LeanSecurity-internal references (no mention of
+          specific client storage solutions, billing arrangements, or internal
+          conventions). The reader's "private storage" is their own concern;
+          the guide stays neutral on whether it's a private git repo, an
+          encrypted drive, or a GCS bucket.
+        constraints:
+          - "Every command shown is copy-pasteable with placeholder substitution"
+          - "Every placeholder uses angle-bracket convention: <your-project-id>, <your-client-name>, etc."
+          - "Every step includes an expected-output snippet so the reader can verify success"
+          - "Troubleshooting section covers at least: API not enabled, IAM permission denied, terraform state bucket access denied, scanner image pull failure, Cloud Run job timeout"
+          - "No assumption that the reader is LeanSecurity-affiliated"
+        acceptance:
+          - "Document renders correctly on GitHub's markdown viewer"
+          - "All commands use placeholders; no real values"
+          - "Every step is independently verifiable (expected output shown)"
+          - "Troubleshooting section addresses the five required failure modes"
+          - "References to other docs (README, gcp_architecture.md, module README) resolve"
+          - verified_by: architect
+            check: "Following the setup guide end-to-end against a fresh test GCP project produces a working deployment with no out-of-doc steps required"
+
+    workstream_acceptance:
+      - "S1 acceptance criteria pass"
+      - "Setup guide cross-references existing docs and scripts correctly"
+      - "No LeanSecurity-internal information leaks into the guide"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Out of scope
+# ──────────────────────────────────────────────────────────────────────────────
+
+out_of_scope:
+  - "Onboarding any real paying client. First-client onboarding is a separate task that consumes this feature's deliverables."
+  - "AWS or Azure infrastructure modules. They remain stubbed."
+  - "Changes to scanner/scan.py, scanner/nuclei_helpers.py, profiles.yaml schema, or tests/ — beyond the profile-name drift fix in B2."
+  - "Cloud-side validation against a real client GCP project. Validation runs against a LeanSecurity-owned test project only, and is architect-verified, not Claude-verified."
+  - "Conduit ingestion validation. The GCS bucket contract is verified by the acceptance checklist; Conduit-side reading is its own project."
+  - "Tooling to sync per-client deployment folders between private storage and the architect workstation."
+  - "A LeanSecurity-internal operations runbook covering client storage conventions, billing, engagement lifecycle. This lives in private documentation."
+  - "SLO tracking component, web UI, or any future component. Spec mode, not build mode — separate project.yaml when scoped."
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Sequencing
+# ──────────────────────────────────────────────────────────────────────────────
+
+sequencing:
+  rule: "Workstreams execute sequentially. Each workstream's deliverables must pass workstream_acceptance before the next workstream begins."
+  order:
+    - build
+    - documentation
+    - setup-guide
+  rationale: |
+    Documentation must reflect the actual final shape of the implementation,
+    not a predicted shape. The setup guide must reference real working code
+    and real working docs. Reversing the order produces drift before merge.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Verification demarcation
+# ──────────────────────────────────────────────────────────────────────────────
+
+verification:
+  claude_code_verified: |
+    All acceptance criteria not marked `verified_by: architect`. These can
+    be validated locally without cloud credentials: terraform validate,
+    terraform fmt, shellcheck, actionlint, pytest, file existence checks,
+    content checks, local CLI and Docker mode dry runs.
+
+  architect_verified: |
+    Acceptance criteria marked `verified_by: architect` require real GCP
+    credentials and execution against a test project. Claude Code prepares
+    the code that makes verification possible; the architect runs the cloud
+    steps. Specifically:
+      - B5: first successful image push to GHCR from a real CI run
+      - B6: bootstrap script execution against a real GCP project
+      - S1: end-to-end setup guide walkthrough against a fresh test project
+      - Brief §9 items 4-13: full cloud-side acceptance checklist
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Inputs Claude Code requires
+# ──────────────────────────────────────────────────────────────────────────────
+
+inputs:
+  - path: gcp-cloud-deploy-brief.html
+    purpose: "Source material for D3 (docs/gcp_architecture.md)"
+    required: true
+    notes: "Architect must place this file in Claude Code's working directory before execution. The brief is the canonical source for the architecture markdown deliverable."
+
+  - path: project repository (current state)
+    purpose: "All file modifications happen here"
+    required: true
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Deliverable summary (flat list for review)
+# ──────────────────────────────────────────────────────────────────────────────
+
+deliverable_summary:
   build:
-    - "`docker build -f docker/Dockerfile.local -t leansecurity/nuclei-scanner:local .` succeeds from repo root with exit 0"
-    - Built image size for Dockerfile.local is < 300MB
-    - "`docker run --rm --entrypoint nuclei leansecurity/nuclei-scanner:local -version` returns the pinned NUCLEI_VERSION"
-    - "`docker run --rm --entrypoint python leansecurity/nuclei-scanner:local --version` returns 3.12.x"
-    - "`docker run --rm --entrypoint cat leansecurity/nuclei-scanner:local /app/scanner/profiles/profiles.yaml` succeeds and outputs valid YAML"
-
-  entrypoint_validation:
-    - Container without CLIENT env var exits non-zero with a clear error message
-    - Container with unsupported CLOUD_PROVIDER value exits non-zero
-    - Container with CLIENT pointing at a non-existent deployments/<client>/
-      exits non-zero with a clear error
-    - Container with CLOUD_PROVIDER=local and valid mounts runs to completion
-    - UPDATE_TEMPLATES=false skips `nuclei -update-templates`
-
-  output_parity:
-    - For an identical targets.txt, local CLI and local Docker produce
-      file outputs at identical paths with identical filenames
-    - Filenames in both modes use the canonical profile names from
-      profiles.yaml (baseline_web, patch_cve, identity_remote_access,
-      data_protection, transport_security, owasp_top10_core, vuln_monitoring)
-    - No filename in either mode reads identity_*.jsonl or transport_*.jsonl
-      or owasp_top10_*.jsonl — the legacy mismatch is gone
-    - Both modes produce a result-YYYY-MM-DD.json normalized output
-
-  ci_compatibility:
-    - .github/workflows/ci.yaml continues to pass — no scanner-layer code
-      changed by this rebuild
-    - tests/test_container.py is included in the existing pytest suite,
-      gated by Docker availability (skipped cleanly when Docker is absent)
-    - infra/gcp/workflows/scanner-image.yml is NOT expected to pass against
-      the rebuilt Dockerfile.local — that workflow targets docker/Dockerfile
-      (cloud), which this PR does not touch
-
+    - "infra/gcp/main.tf (env block fix, module rewrite for flags)"
+    - "infra/gcp/variables.tf (new variables)"
+    - "infra/gcp/outputs.tf (preserved interface)"
+    - "infra/gcp/versions.tf (provider pinning, create if absent)"
+    - "docker/entrypoint.sh (profile name alignment)"
+    - "infra/gcp/workflows/deploy.yml (DELETE)"
+    - "infra/gcp/workflows/scanner-image.yml (DELETE)"
+    - ".github/workflows/publish-image.yaml (NEW)"
+    - "scripts/bootstrap-gcp-client.sh (NEW)"
+    - "deployments/_example/* (refresh)"
+    - "deployments/_example/README.md (NEW)"
+    - "deployments/mdi/ (DELETE)"
+    - ".gitignore (remove mdi line)"
   documentation:
-    - README has a Local Docker section with the canonical `docker run` invocation
-    - decisions/ADR-007-python-in-container.md exists and is referenced by
-      docker/entrypoint.sh as a comment header
-    - Local Quickstart .docx is NOT updated by this PR (deferred per system
-      instruction)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# RESOLVED OPEN QUESTIONS (from v0.1)
-# ─────────────────────────────────────────────────────────────────────────────
-resolved:
-  - id: nuclei-version-pin
-    resolution: |
-      Initial pin: NUCLEI_VERSION=v3.4.10. Architect to verify against
-      https://github.com/projectdiscovery/nuclei/releases before merge and
-      bump if a more recent stable patch exists. Pin string is the only
-      source of truth and lives in docker/Dockerfile.local; tests/test_container.py
-      asserts against the same constant.
-    resolved_on: 2026-05-05
-
-  - id: ci-workflow-build-context
-    resolution: |
-      Deferred. The infra/gcp/workflows/scanner-image.yml build-context fix
-      lands with the cloud Dockerfile rebuild in a follow-up PR, not this one.
-      This PR does not modify docker/Dockerfile (cloud) and does not touch
-      the workflow.
-    resolved_on: 2026-05-05
-
-  - id: cloud-mode-validation
-    resolution: |
-      Out of scope for this PR. Cloud follow-up project.yaml will cover
-      docker/Dockerfile rebuild + scanner-image.yml build-context fix +
-      Cloud Run E2E validation as a single coherent unit.
-    resolved_on: 2026-05-05
-
-  - id: dockerignore-deployments-policy
-    resolution: |
-      .dockerignore excludes deployments/ except deployments/_example/.
-      Test harness in tests/test_container.py uses a tmp_path-based deployments
-      tree mounted at run time, so the .dockerignore policy does not block
-      the smoke test.
-    resolved_on: 2026-05-05
-
-# ─────────────────────────────────────────────────────────────────────────────
-# IMPLEMENTATION ORDER (for whoever picks this up — Claude Code or otherwise)
-# ─────────────────────────────────────────────────────────────────────────────
-implementation_order:
-  - 1: Verify Nuclei v3.4.10 is the right pin against the releases page; bump if needed
-  - 2: Commit decisions/ADR-007-python-in-container.md
-  - 3: Add .dockerignore at repo root
-  - 4: Rewrite docker/Dockerfile.local
-  - 5: Rewrite docker/entrypoint.sh (local-mode branches exercised; cloud branches present but unexercised)
-  - 6: Add tests/test_container.py
-  - 7: Verify acceptance criteria: build, entrypoint_validation, output_parity, ci_compatibility, documentation
-  - 8: Update README.md with the Local Docker section
-  - 9: Open PR; merge gates on CI green and architect approval
-
-# ─────────────────────────────────────────────────────────────────────────────
-# FOLLOW-UP WORK (NOT this PR)
-# ─────────────────────────────────────────────────────────────────────────────
-follow_up:
-  - cloud-container-rebuild:
-      scope: |
-        Rewrite docker/Dockerfile (cloud) on the same python:3.12-slim base
-        with cloud CLIs layered in. Fix infra/gcp/workflows/scanner-image.yml
-        build context. Run cloud E2E validation against a test client on
-        Cloud Run.
-      blocked_by: This PR landing and stabilizing.
-
-  - seed-document-v1.2-revision:
-      scope: |
-        Fold the seed-document-v1.2-delta drafted separately into the next
-        seed document revision. Updates §10 Locked Design Decisions, the
-        Runtime Language Policy section, the Component Registry, and §12
-        Change Log. Per system instruction, the seed document is not
-        re-drafted piecemeal — this revision waits for the SLO tracking
-        component scope.
-      blocked_by: SLO tracking component (vmctl) scope finalization.
+    - "README.md (cloud section rewrite + cross-links)"
+    - "infra/gcp/README.md (module reference, NEW)"
+    - "docs/gcp_architecture.md (architecture distillation, NEW)"
+  setup-guide:
+    - "docs/setup-guide.md (end-to-end open-source setup, NEW)"

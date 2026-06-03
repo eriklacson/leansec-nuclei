@@ -1,4 +1,4 @@
-project_id    = "REPLACE-WITH-CLIENT-gcp-project-id"
-region        = "asia-southeast1"
-client_name   = "REPLACE"
-scanner_image = "asia-southeast1-docker.pkg.dev/leansecurity-shared/nuclei/scanner:latest"
+# Placeholder values — replace before running terraform apply.
+project_id    = "<your-project-id>"
+client_name   = "<client>"
+scanner_image = "ghcr.io/leansecurity/leansec-nuclei:v1.0.0"

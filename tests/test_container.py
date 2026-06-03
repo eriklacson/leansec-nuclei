@@ -17,7 +17,7 @@ import pytest
 # NUCLEI_VERSION mirrors ARG NUCLEI_VERSION in docker/Dockerfile.local; both
 # values must move together. If you bump one, bump the other.
 NUCLEI_VERSION = "v3.4.10"
-IMAGE_TAG = "leansecurity/nuclei-scanner:test-local"
+IMAGE_TAG = "leansecurity/leansec-nuclei:test-local"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCKERFILE = "docker/Dockerfile.local"
 

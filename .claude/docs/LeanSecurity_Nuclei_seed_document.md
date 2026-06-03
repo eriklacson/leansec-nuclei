@@ -1,5 +1,5 @@
 # # LeanSecurity — Nuclei
-## Project Seed Document v1.3
+## Project Seed Document v1.4
 **Classification:** LeanSecurity Internal IP
 **Status:** Container layer rebuilt under ADR-007 (May 2026); scanner layer Python; normalized JSON output wrapped in v1 envelope (May 2026); Month 1 build complete
 **Last updated:** May 2026
@@ -553,6 +553,14 @@ schedule_timezone = "<client-timezone>"
 | Cloud vendor workflows gated | `infra/<vendor>/workflows/` (not auto-active in `.github/workflows/`) | Prevents accidental deploys when no cloud deployment is intended. Activate by manual copy. |
 | Railway evaluated and rejected | Does not fit this workload | No object storage, no Terraform provider, no scoped IAM. |
 
+### gcp-cloud-deploy decisions (added 2026-05-28)
+
+The following three decisions were locked as part of the `gcp-cloud-deploy` feature activation. They are appended verbatim from `.claude/docs/project.yaml`.
+
+- "Public-repo, private-deployment topology. The public repository contains the reusable pipeline and module. Per-client deployment configuration lives in client-controlled storage outside the public repository."
+- "GHCR is the scanner image distribution channel. The image is built from the public repository and published to ghcr.io/leansecurity/leansec-nuclei. Clients pull from GHCR directly or mirror into their own Artifact Registry."
+- "Cloud-side execution is architect-driven, not CI-driven. terraform apply runs from the architect's workstation against the client GCP project. Public-repo CI does not hold GCP credentials and never touches client infrastructure."
+
 ---
 
 ## 11. What This Project Does Not Own
@@ -576,3 +584,4 @@ schedule_timezone = "<client-timezone>"
 | 1.1 | April 2026 | Scanner layer ported to Python. `scan.sh` deprecated; `scan.py` + `nuclei_helpers.py` added. `profiles.yaml` now parsed at runtime by `scan.py`. `entrypoint.sh` remains bash (container exception). Python 3.12 + Poetry + CI (Black/Ruff/Bandit/pytest) added. Locked design decisions §10 updated. Profile-sync surface reduced from two scripts to one. |
 | 1.2 | May 2026 | ADR-007 integrated. Container layer rebuilt: `python:3.12-slim` base, Nuclei binary at pinned version (`NUCLEI_VERSION` build arg), `scan.py` invoked from a thin bash wrapper. The "container is bash-only" v1.1 decision is reversed. The "drift between profiles.yaml and entrypoint.sh is a bug" v1.1 decision is replaced by structural elimination of the drift surface — `profiles.yaml` is now the single source of truth with no parallel hardcoded copy. `PROFILES_PATH` env var removed; profiles bake into the image. `CLIENT` env var now required at entrypoint. `UPDATE_TEMPLATES` env var added. Profile output stems normalized to canonical names (`identity_remote_access`, `transport_security`, `owasp_top10_core`). |
 | 1.3 | May 2026 | Normalized JSON Output wrapped in a versioned envelope (sprint `update/normalize_json_wrapper`). §3 §"Normalized JSON Output" rewritten: the consolidated `result-YYYY-MM-DD.json` is now a single JSON document with `schema_version` (integer; sourced from `nuclei_json_converter.SCHEMA_VERSION = 1`), `scan_run.{client, run_date, profiles_executed, findings_count}`, and `findings[]`. The previous bare-array shape is retired with no backward-compat mode. Finding object shape is unchanged. Envelope construction lives in `scanner/nuclei_json_converter.build_normalized_document(...)`; profile-name derivation from JSONL filenames lives in `list_executed_profiles(...)`. Both `scanner/scan.py` and `scanner/nuclei_convert_tool.py` emit the envelope. Out of scope (deferred): `scan_started_at` / `scan_completed_at` / `scanner_version` fields, consumer-direction schema validation. |
+| 1.4 | May 2026 | `gcp-cloud-deploy` feature activated. Public-repo / private-deployments topology locked (three new entries in §10). GCP Terraform module rewritten with `enable_scheduler`, `enable_wif`, `enable_ar_mirror` flags; provider pinned to `google ~> 6.0` (versions.tf added); env blocks on `google_cloud_run_v2_job` rewritten multi-line. Scanner image distribution moved to GHCR (`ghcr.io/leansecurity/leansec-nuclei`) via new `.github/workflows/publish-image.yaml` (three-tag scheme: latest / short-sha / semver). Old `infra/gcp/workflows/{deploy,scanner-image}.yml` removed. Bootstrap script added at `scripts/bootstrap-gcp-client.sh`. `deployments/_example/` refreshed to call the module via a Git source ref. `deployments/mdi/` placeholder removed; `.gitignore` cleaned up. Module reference, architecture distillation, and end-to-end setup guide added under `docs/` and `infra/gcp/`. |

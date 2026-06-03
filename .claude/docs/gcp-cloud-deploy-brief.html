@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GCP Cloud Deploy — Architecture Brief</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 48px 32px 96px;
+    color: #2C2C2A;
+    line-height: 1.6;
+    font-size: 16px;
+    background: #fff;
+  }
+  h1 { font-size: 28px; font-weight: 500; margin: 0 0 8px; }
+  h2 { font-size: 20px; font-weight: 500; margin: 40px 0 12px; padding-top: 16px; border-top: 1px solid #D3D1C7; }
+  h3 { font-size: 16px; font-weight: 500; margin: 24px 0 8px; }
+  p, ul, ol { margin: 0 0 12px; }
+  ul, ol { padding-left: 24px; }
+  li { margin-bottom: 4px; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px;
+    background: #F1EFE8;
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  pre {
+    background: #F1EFE8;
+    padding: 12px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  pre code { background: none; padding: 0; }
+  hr { border: none; border-top: 1px solid #D3D1C7; margin: 32px 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 20px;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid #D3D1C7;
+    vertical-align: top;
+  }
+  th { font-weight: 500; background: #F1EFE8; }
+  .meta { color: #5F5E5A; font-size: 14px; margin-bottom: 24px; }
+  .meta strong { color: #2C2C2A; font-weight: 500; }
+  .diagram { margin: 24px 0; }
+  .diagram svg { max-width: 100%; height: auto; display: block; }
+  strong { font-weight: 500; }
+</style>
+</head>
+<body>
+
+<h1>GCP Cloud Deploy — Architecture Brief</h1>
+<div class="meta">
+  <strong>Status:</strong> Draft for architect review<br>
+  <strong>Component:</strong> <code>infra/gcp/</code> activation (Cloud Automated tier)<br>
+  <strong>Mode:</strong> Build mode — architecture locked in seed document, this brief drives activation work<br>
+  <strong>Repo posture:</strong> Public open-source. No client artifacts ever live in this repo.
+</div>
+
+<h2>1. Context and intent</h2>
+<p>The <code>leansecurity-nuclei</code> pipeline runs in two modes today: local CLI (<code>poetry run python scanner/scan.py &lt;client&gt;</code>) and local Docker. The third tier — <strong>Cloud Automated</strong> — exists as scaffolding under <code>infra/gcp/</code>, <code>infra/gcp/workflows/</code>, and <code>deployments/_example/</code>, but has never been validated end-to-end. The repository README explicitly states this is "not yet available."</p>
+<p>The Terraform exists. The work is <strong>activation, validation, and operationalization</strong> — turning inert configuration into a deployed, scheduled, ephemeral scanning pipeline running in a per-client GCP project, distributed as an open-source artifact.</p>
+
+<h2>2. Operating model — open-source pipeline, client-hosted deployments</h2>
+
+<h3>Public repo, private deployments</h3>
+<p>This is a public, open-source repository. It contains the reusable scanning pipeline — scanner, container image build, Terraform module, documentation. It contains zero client-identifying data.</p>
+<p>Per-client deployment configuration — Terraform tfvars, target lists, backend configuration — lives entirely outside this repository, in client-controlled storage. There is no <code>deployments/&lt;client&gt;/</code> folder in this repo. <code>deployments/_example/</code> exists only as a template documenting what a private deployment folder should contain.</p>
+<p>This is the standard shape for an open-source consulting product: the public repo publishes the module; consumers — including LeanSecurity's own consulting practice — reference it from private workspaces. Terraform's own ecosystem works exactly this way (<code>terraform-aws-modules</code>, <code>cdk-patterns</code>, and so on).</p>
+
+<h3>The operator is the architect, not CI</h3>
+<p>LeanSecurity GitHub Actions does not run <code>terraform apply</code> against any client project. The architect runs Terraform from a local workstation, authenticated as themselves via <code>gcloud auth application-default login</code>, with per-engagement scoping. The repo's CI runs lint, test, and image publishing — nothing else touches GCP.</p>
+<p>Once provisioned, each client's scanner runs autonomously inside the client's GCP project on a Cloud Scheduler cadence. The architect's involvement ends with <code>terraform apply</code>. GCP itself closes the operational loop.</p>
+
+<h3>Scanner image distribution via GHCR</h3>
+<p>The scanner Docker image is built by the public repo's CI and published to GitHub Container Registry at <code>ghcr.io/leansecurity/leansec-nuclei:&lt;tag&gt;</code>. This is the open-source artifact. Cloud Run jobs in client projects pull from GHCR directly (or, optionally, mirror into the client's own Artifact Registry first — a per-deployment choice).</p>
+
+<h3>Trust topology</h3>
+<div class="diagram">
+<svg viewBox="0 0 680 460" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Operating model topology">
+  <defs>
+    <marker id="arrow1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <rect x="40" y="30" width="280" height="80" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="180" y="58" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="500" fill="#085041">public repo CI</text>
+  <text x="180" y="78" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0F6E56">lint, test, build image</text>
+  <text x="180" y="96" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0F6E56">no GCP credentials</text>
+
+  <line x1="320" y1="70" x2="378" y2="70" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow1)"/>
+  <text x="349" y="62" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#444441">publish</text>
+
+  <rect x="380" y="30" width="260" height="80" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="510" y="58" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="500" fill="#085041">GHCR</text>
+  <text x="510" y="78" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0F6E56">ghcr.io/leansecurity/leansec-nuclei</text>
+  <text x="510" y="96" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0F6E56">public, semver tagged</text>
+
+  <rect x="40" y="160" width="280" height="80" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+  <text x="180" y="188" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="500" fill="#3C3489">architect workstation</text>
+  <text x="180" y="208" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#534AB7">terraform apply</text>
+  <text x="180" y="226" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#534AB7">gcloud auth as architect</text>
+
+  <line x1="180" y1="240" x2="180" y2="288" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow1)"/>
+
+  <rect x="40" y="290" width="280" height="60" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+  <text x="180" y="316" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="500" fill="#2C2C2A">client-controlled storage</text>
+  <text x="180" y="334" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#444441">tfvars, targets, backend config</text>
+
+  <line x1="320" y1="200" x2="378" y2="200" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow1)"/>
+  <text x="349" y="192" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#444441">applies</text>
+
+  <rect x="380" y="160" width="260" height="240" rx="12" fill="#FAEEDA" stroke="#BA7517" stroke-width="0.5"/>
+  <text x="510" y="188" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="500" fill="#633806">client GCP project</text>
+
+  <rect x="400" y="208" width="220" height="40" rx="6" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+  <text x="510" y="232" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#712B13">Cloud Run job</text>
+
+  <rect x="400" y="256" width="220" height="40" rx="6" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+  <text x="510" y="280" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#712B13">Cloud Scheduler (optional)</text>
+
+  <rect x="400" y="304" width="220" height="40" rx="6" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+  <text x="510" y="328" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#712B13">config and results buckets</text>
+
+  <rect x="400" y="352" width="220" height="40" rx="6" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+  <text x="510" y="376" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#712B13">WIF pool (optional)</text>
+
+  <line x1="510" y1="110" x2="510" y2="208" stroke="#888780" stroke-width="0.5" stroke-dasharray="4 4"/>
+  <text x="528" y="160" font-family="sans-serif" font-size="11" fill="#444441">image pull at scan time</text>
+
+  <text x="340" y="430" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#444441">no LeanSecurity-owned GCP infrastructure</text>
+  <text x="340" y="446" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#444441">no per-client artifacts in the public repo</text>
+</svg>
+</div>
+
+<h3>What lives where</h3>
+<table>
+  <thead>
+    <tr><th>Artifact</th><th>Location</th><th>Owner</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Scanner code, Terraform module, Dockerfile, <code>_example/</code></td><td>Public repo</td><td>LeanSecurity</td></tr>
+    <tr><td>Scanner image</td><td>GHCR (public)</td><td>LeanSecurity</td></tr>
+    <tr><td>Per-client tfvars, targets.txt, backend.tf</td><td>Client-controlled private storage (per engagement)</td><td>Client / shared with architect</td></tr>
+    <tr><td>Per-client Terraform state</td><td>GCS bucket in client GCP project</td><td>Client</td></tr>
+    <tr><td>Per-client GCP resources (buckets, Cloud Run, Scheduler, IAM)</td><td>Client GCP project</td><td>Client</td></tr>
+  </tbody>
+</table>
+
+<h2>3. Runtime scan execution flow</h2>
+<p>Once provisioned, a scan run is fully autonomous if Cloud Scheduler is enabled. The scheduler fires monthly, the Cloud Run job spins up an ephemeral container pulled from GHCR (or the client's mirrored Artifact Registry), the container reads its config from GCS, runs all 7 Nuclei profiles, writes JSONL to GCS, and exits.</p>
+
+<div class="diagram">
+<svg viewBox="0 0 680 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Monthly scan runtime flow on GCP">
+  <defs>
+    <marker id="arrow2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <rect x="40" y="40" width="160" height="56" rx="8" fill="#FAEEDA" stroke="#BA7517" stroke-width="0.5"/>
+  <text x="120" y="64" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="500" fill="#633806">Cloud Scheduler</text>
+  <text x="120" y="82" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#854F0B">monthly cron (optional)</text>
+
+  <line x1="200" y1="68" x2="258" y2="68" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow2)"/>
+  <text x="229" y="60" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#444441">invoke</text>
+
+  <rect x="260" y="40" width="160" height="56" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+  <text x="340" y="64" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="500" fill="#3C3489">Cloud Run job</text>
+  <text x="340" y="82" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#534AB7">ephemeral container</text>
+
+  <line x1="420" y1="68" x2="478" y2="68" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow2)"/>
+  <text x="449" y="60" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#444441">pulls</text>
+
+  <rect x="480" y="40" width="160" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="560" y="64" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="500" fill="#085041">GHCR or mirror AR</text>
+  <text x="560" y="82" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0F6E56">scanner image</text>
+
+  <line x1="340" y1="96" x2="340" y2="140" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow2)"/>
+
+  <rect x="120" y="140" width="440" height="180" rx="12" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
+  <text x="340" y="168" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="500" fill="#3C3489">container runtime</text>
+  <text x="340" y="186" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#534AB7">entrypoint.sh, CLOUD_PROVIDER=gcp</text>
+
+  <rect x="140" y="208" width="180" height="40" rx="6" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+  <text x="230" y="232" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#2C2C2A">download_config from GCS</text>
+
+  <rect x="140" y="256" width="180" height="40" rx="6" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+  <text x="230" y="280" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#2C2C2A">run 7 nuclei profiles</text>
+
+  <rect x="360" y="208" width="180" height="40" rx="6" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+  <text x="450" y="232" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#2C2C2A">write JSONL to /tmp</text>
+
+  <rect x="360" y="256" width="180" height="40" rx="6" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+  <text x="450" y="280" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#2C2C2A">upload_results to GCS</text>
+
+  <line x1="160" y1="350" x2="160" y2="228" stroke="#888780" stroke-width="0.5"/>
+  <line x1="160" y1="228" x2="138" y2="228" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow2)"/>
+
+  <rect x="40" y="360" width="240" height="56" rx="8" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+  <text x="160" y="384" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="500" fill="#4A1B0C">config bucket</text>
+  <text x="160" y="402" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#712B13">targets.txt, profiles.yaml</text>
+
+  <line x1="520" y1="296" x2="520" y2="360" stroke="#888780" stroke-width="0.5"/>
+  <line x1="520" y1="360" x2="498" y2="360" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow2)"/>
+
+  <rect x="380" y="360" width="240" height="56" rx="8" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+  <text x="500" y="384" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="500" fill="#4A1B0C">results bucket</text>
+  <text x="500" y="402" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#712B13">nuclei/YYYY-MM/*.jsonl</text>
+
+  <line x1="500" y1="416" x2="500" y2="460" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow2)"/>
+
+  <rect x="380" y="460" width="240" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="500" y="484" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="500" fill="#0C447C">Conduit P2 ingest</text>
+  <text x="500" y="502" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#185FA5">reads independently</text>
+</svg>
+</div>
+
+<h3>Three properties to note</h3>
+<p><strong>Ephemeral.</strong> No persistent compute. The container exists only while the scan runs, then exits. The Cloud Run job definition persists; the running instance does not. This is what "no persistent infrastructure in cloud mode" means concretely.</p>
+<p><strong>Loose coupling to Conduit.</strong> The scanner does not know Conduit exists. It writes JSONL to a GCS prefix; Conduit's P2 ingest adapter reads from that prefix on its own schedule. The bucket is the contract.</p>
+<p><strong>Directory structure parity.</strong> <code>&lt;results-bucket&gt;/nuclei/YYYY-MM/&lt;profile&gt;_YYYY-MM.jsonl</code> in cloud mode mirrors <code>results/&lt;client&gt;/YYYY-MM/&lt;profile&gt;_YYYY-MM.jsonl</code> in local mode. This is what makes <code>gcloud storage cp</code> the trivial bridge between local and cloud — no transformation required.</p>
+
+<h2>4. Module flags — what's optional</h2>
+<p>The Terraform module exposes two flags that adapt the deployment to engagement model:</p>
+
+<table>
+  <thead>
+    <tr><th>Flag</th><th>Default</th><th>Effect when enabled</th><th>When to use the non-default</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>enable_scheduler</code></td>
+      <td><code>true</code></td>
+      <td>Provisions Cloud Scheduler job + scheduler SA + invoker IAM binding. Monthly cron fires the Cloud Run job autonomously.</td>
+      <td>Disable if the client drives scan cadence from their own scheduling system (Airflow, internal CI, manual on-demand).</td>
+    </tr>
+    <tr>
+      <td><code>enable_wif</code></td>
+      <td><code>false</code></td>
+      <td>Provisions Workload Identity Federation pool, provider, and SA binding. Allows an external CI (GitHub Actions in any org) to authenticate as a GCP service account without static keys.</td>
+      <td>Enable if the client wants to drive scans from their own CI, or if a future engagement model requires CI-driven Terraform apply.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The asymmetric defaults reflect what's intrinsic to the pipeline. Autonomous monthly cadence is the product; CI-driven access is a power-user extension.</p>
+
+<h3>What WIF provides, briefly</h3>
+<p>Workload Identity Federation lets external systems (GitHub Actions, AWS, on-prem) authenticate as a GCP service account using short-lived OIDC tokens instead of long-lived JSON key files. The trust binding lives in GCP; no static credentials exist anywhere. It's the modern replacement for service account keys.</p>
+<p>In the default operating model, WIF is unnecessary — the architect runs Terraform from a workstation with personal gcloud credentials, and the image build pushes to GHCR with the workflow's built-in <code>GITHUB_TOKEN</code>. WIF earns its place only when an external system needs persistent authenticated access to the client project, which is not part of the default activation.</p>
+
+<h2>5. Public repo CI/CD model</h2>
+<p>The public repo has exactly two CI workflows. Both run in GitHub Actions, both touch only the public repo's own resources, neither has GCP credentials.</p>
+
+<table>
+  <thead>
+    <tr><th>Workflow</th><th>Trigger</th><th>Action</th><th>Auth</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>ci.yaml</code></td>
+      <td>Every push and PR</td>
+      <td>Lint (Black, Ruff), security scan (Bandit), pytest</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td><code>publish-image.yaml</code></td>
+      <td>Push to <code>main</code> touching <code>docker/</code> or <code>scanner/</code>, and on Git tag <code>v*</code></td>
+      <td>Build container image, push to GHCR with <code>:latest</code>, <code>:&lt;sha&gt;</code>, and (on tag) <code>:v1.2.3</code></td>
+      <td><code>GITHUB_TOKEN</code> (built-in)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Critically: the existing <code>infra/gcp/workflows/deploy.yml</code> in the scaffolding is <strong>deleted, not gated</strong>. There is no client-deploy CI in the public repo. The "gated workflow" pattern from the original scaffolding is obsolete under this model — there is no per-client Terraform apply for CI to run.</p>
+
+<h3>GHCR image tagging</h3>
+<p>Images are tagged with three labels per build:</p>
+<ul>
+  <li><code>ghcr.io/leansecurity/leansec-nuclei:latest</code> — moves with every main-branch build. For experimentation only.</li>
+  <li><code>ghcr.io/leansecurity/leansec-nuclei:&lt;commit-sha&gt;</code> — immutable, traceable to source. For pinned deployments.</li>
+  <li><code>ghcr.io/leansecurity/leansec-nuclei:v1.2.3</code> — semantic version, set on Git tag push. The recommended pin for production deployments.</li>
+</ul>
+<p>Client tfvars should pin to a semver or SHA tag, never <code>:latest</code>. The pin is the deliberate decision point for scanner version rollout per client.</p>
+
+<h2>6. Per-client onboarding</h2>
+<p>Onboarding a new client is a procedure run by the architect. It is mechanical, scriptable, and billable to the engagement.</p>
+
+<h3>Onboarding workstreams</h3>
+<table>
+  <thead>
+    <tr><th>#</th><th>Step</th><th>Where</th><th>Tool</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1</td><td>Identify or create client GCP project</td><td>Client</td><td>gcloud / GCP console</td></tr>
+    <tr><td>2</td><td>Enable required APIs in the client project</td><td>Client project</td><td>gcloud</td></tr>
+    <tr><td>3</td><td>Create Terraform state bucket</td><td>Client project</td><td>gcloud (one-time bootstrap)</td></tr>
+    <tr><td>4</td><td>Grant architect IAM access to the client project</td><td>Client project</td><td>gcloud (by client admin)</td></tr>
+    <tr><td>5</td><td>Provision private storage for the deployment folder</td><td>Per engagement</td><td>Client-controlled (private git repo, encrypted shared drive, GCS bucket, etc.)</td></tr>
+    <tr><td>6</td><td>Copy <code>deployments/_example/</code> as starting point into the private storage</td><td>Architect workstation</td><td>git / filesystem</td></tr>
+    <tr><td>7</td><td>Populate <code>terraform.tfvars</code>, <code>backend.tf</code>, <code>targets.txt</code></td><td>Architect workstation</td><td>editor</td></tr>
+    <tr><td>8</td><td><code>terraform init</code> against the client state bucket</td><td>Architect workstation</td><td>terraform</td></tr>
+    <tr><td>9</td><td><code>terraform plan</code>, review</td><td>Architect workstation</td><td>terraform</td></tr>
+    <tr><td>10</td><td><code>terraform apply</code></td><td>Architect workstation</td><td>terraform</td></tr>
+    <tr><td>11</td><td>Manually trigger first scan, verify JSONL output</td><td>Client project</td><td>gcloud</td></tr>
+    <tr><td>12</td><td>Confirm Cloud Scheduler shows correct next execution time</td><td>Client project</td><td>gcloud / GCP console</td></tr>
+  </tbody>
+</table>
+
+<p>Steps 1–4 are bootstrap: they create the trust anchor that lets Terraform run. They are codified in a runbook (<code>scripts/bootstrap-gcp-client.sh</code> in the public repo, or documented in <code>infra/gcp/README.md</code>) — not in Terraform, because Terraform itself depends on the state bucket and architect IAM access existing first.</p>
+<p>Steps 5–7 use the engagement-specific private storage. The architect maintains a local working copy of each client's deployment folder, with the source of truth being whatever private location the engagement designates (per-client variant). When the architect needs to update a client's config — change targets, bump scanner image version — they pull, edit, apply, push back.</p>
+
+<h3>Required APIs (step 2)</h3>
+<ul>
+  <li><code>run.googleapis.com</code> — Cloud Run Admin API</li>
+  <li><code>cloudscheduler.googleapis.com</code> — Cloud Scheduler API (only if <code>enable_scheduler = true</code>)</li>
+  <li><code>storage.googleapis.com</code> — Cloud Storage API</li>
+  <li><code>iam.googleapis.com</code> — IAM API</li>
+  <li><code>iamcredentials.googleapis.com</code> — required for WIF (only if <code>enable_wif = true</code>)</li>
+  <li><code>sts.googleapis.com</code> — Security Token Service (only if <code>enable_wif = true</code>)</li>
+  <li><code>artifactregistry.googleapis.com</code> — only if the deployment mirrors the GHCR image into a client AR</li>
+</ul>
+
+<h3>IAM for the architect (step 4)</h3>
+<p>Granted at the project level by the client admin, scoped to the engagement:</p>
+<ul>
+  <li><code>roles/run.admin</code></li>
+  <li><code>roles/cloudscheduler.admin</code></li>
+  <li><code>roles/storage.admin</code></li>
+  <li><code>roles/iam.serviceAccountAdmin</code></li>
+  <li><code>roles/iam.serviceAccountUser</code></li>
+</ul>
+
+<h3>Time estimate</h3>
+<p>A clean onboarding, with the bootstrap runbook in hand and a GCP project ready, is approximately <strong>30–60 minutes of architect time</strong> — most of it waiting for GCP API enablement and the first <code>terraform apply</code>. One-time per client.</p>
+
+<h2>7. Known defects in the scaffolding</h2>
+<p>Two defects in the existing scaffolding will surface during activation. Both are work items in the project.yaml.</p>
+
+<h3>7.1 Terraform env block formatting</h3>
+<p>The current <code>infra/gcp/main.tf</code> writes Cloud Run env blocks in a non-standard inline form: <code>env { name = "..." value = "..." }</code>. The <code>google_cloud_run_v2_job</code> resource expects each env entry as a properly-formatted multi-line block. The current file also appears to be truncated mid-resource in the project snapshot — the <code>RESULTS_BUCKET</code> env value is incomplete. Both need fixing before first plan.</p>
+
+<h3>7.2 profiles.yaml ↔ entrypoint.sh drift</h3>
+<p>The scanner Python parses <code>profiles.yaml</code> at runtime. The container entrypoint hardcodes equivalent flags. These must match. <strong>They don't today.</strong> The entrypoint writes files named <code>identity_*.jsonl</code>, <code>transport_*.jsonl</code>, <code>owasp_top10_*.jsonl</code> but <code>profiles.yaml</code> defines profiles <code>identity_remote_access</code>, <code>transport_security</code>, <code>owasp_top10_core</code>. The seed document calls this out as a bug: drift between <code>profiles.yaml</code> and <code>entrypoint.sh</code> breaks the locked design decision that directory structure stays identical across local and cloud. <strong>Must be fixed before any cloud run.</strong></p>
+
+<p>Note: the <code>deployments/mdi/</code> gitignore contradiction from earlier drafts of this brief is dissolved by the operating model — no <code>deployments/&lt;client&gt;/</code> folders ever live in the public repo, so there is nothing to gitignore. Any existing placeholder folder is slated for removal as part of activation.</p>
+
+<h2>8. Scope boundary for this feature</h2>
+
+<h3>In scope</h3>
+<ol>
+  <li>Fix the two defects in §7</li>
+  <li>Rewrite <code>infra/gcp/</code> to:
+    <ul>
+      <li>Add <code>enable_scheduler</code> variable (default <code>true</code>), put scheduler resources behind <code>count</code></li>
+      <li>Add <code>enable_wif</code> variable (default <code>false</code>), put WIF resources behind <code>count</code></li>
+      <li>Remove the implicit assumption that the scanner image lives in a specific Artifact Registry path — accept any image URI via <code>scanner_image</code></li>
+      <li>Make Artifact Registry repository provisioning optional behind a flag for clients who want to mirror the GHCR image</li>
+    </ul>
+  </li>
+  <li>Delete <code>infra/gcp/workflows/deploy.yml</code> (no longer applicable)</li>
+  <li>Replace <code>infra/gcp/workflows/scanner-image.yml</code> with <code>.github/workflows/publish-image.yaml</code> that builds and pushes to GHCR on main and on tag</li>
+  <li>Write <code>scripts/bootstrap-gcp-client.sh</code> — the gcloud runbook for steps 1–4 of onboarding</li>
+  <li>Update <code>deployments/_example/</code> to reflect the GHCR image path and the new module flags</li>
+  <li>Remove the placeholder <code>deployments/mdi/</code> from the repo</li>
+  <li>Run end-to-end validation against a dedicated GCP test project owned by LeanSecurity</li>
+  <li>Update <code>README.md</code> and <code>infra/gcp/README.md</code> to document the operating model, GHCR distribution, and module flags</li>
+  <li>Update the seed document — add the locked design decisions for the public/private topology, GHCR, and the module-flags pattern</li>
+</ol>
+
+<h3>Out of scope</h3>
+<ul>
+  <li>Onboarding any actual paying client. First-client onboarding consumes this feature's deliverables.</li>
+  <li>AWS or Azure modules. They remain stubbed.</li>
+  <li>Any change to <code>scanner/</code> Python or tests beyond fixing the profile-name drift in §7.2.</li>
+  <li>Cloud-side validation requiring real client credentials. Validation runs against a LeanSecurity-owned test project only.</li>
+  <li>Conduit ingestion validation. The bucket contract is verified by the checklist; Conduit-side reading is its own project.</li>
+  <li>Tooling to manage per-client deployment folders in their private storage (sync scripts, CLI helpers, etc.). Architect manages these manually for now.</li>
+</ul>
+
+<h2>9. Acceptance criteria</h2>
+<p>Scoped to a LeanSecurity-owned GCP test project. The deployment folder for the test client lives in private storage outside the public repo, exercising the full flow end-to-end.</p>
+<ol>
+  <li><code>scripts/bootstrap-gcp-client.sh</code> executes cleanly against a fresh GCP project, enables required APIs, and creates a working Terraform state bucket.</li>
+  <li>A test client deployment folder exists in private storage with <code>main.tf</code>, <code>backend.tf</code>, <code>terraform.tfvars</code>, <code>targets.txt</code>, and references the public module via a Git source ref.</li>
+  <li><code>publish-image.yaml</code> in the public repo successfully builds and pushes the scanner image to <code>ghcr.io/leansecurity/leansec-nuclei</code> with the expected three tags.</li>
+  <li><code>terraform init</code> succeeds against the client state bucket from the architect workstation.</li>
+  <li><code>terraform plan</code> shows the expected resources with no syntax errors and respects the default flags (scheduler on, WIF off).</li>
+  <li><code>terraform apply</code> completes without errors.</li>
+  <li>Config bucket contains <code>targets.txt</code> and <code>profiles.yaml</code>.</li>
+  <li>Manual <code>gcloud run jobs execute</code> succeeds and the container pulls the image from GHCR without auth issues.</li>
+  <li>JSONL files appear in the results bucket under <code>nuclei/YYYY-MM/</code>.</li>
+  <li>JSONL filenames match <code>profiles.yaml</code> profile names exactly (resolves §7.2 drift).</li>
+  <li>Cloud Scheduler shows the correct next execution time.</li>
+  <li>A second <code>terraform plan</code> with <code>enable_scheduler = false</code> shows the scheduler resources being destroyed; reverting shows them being recreated. Same test for <code>enable_wif</code>.</li>
+  <li>Public repo CI (<code>ci.yaml</code>) passes on PR and merge throughout.</li>
+</ol>
+
+<h2>10. Open decisions for architect sign-off</h2>
+<p>Before producing the <code>project.yaml</code>:</p>
+<ol>
+  <li><strong>Image tag scheme.</strong> Use all three tags (<code>:latest</code>, <code>:&lt;sha&gt;</code>, <code>:v1.2.3</code>) as described in §5, or a subset?</li>
+  <li><strong>GHCR image name.</strong> <code>ghcr.io/leansecurity/leansec-nuclei</code> (matches the artifact's role) or <code>ghcr.io/leansecurity/leansecurity-nuclei</code> (matches the repo name)?</li>
+  <li><strong>Bootstrap script vs. documentation only.</strong> Ship <code>scripts/bootstrap-gcp-client.sh</code> as an executable bash script, or document the gcloud commands inline in <code>infra/gcp/README.md</code> only? Script is more useful for repeatability; doc-only is more visible.</li>
+  <li><strong>Existing <code>infra/gcp/workflows/scanner-image.yml</code>.</strong> Delete entirely, or repurpose as the basis for <code>publish-image.yaml</code>?</li>
+  <li><strong>Artifact Registry mirror flag name.</strong> Proposed: <code>enable_ar_mirror</code> (default <code>false</code>). If enabled, the module provisions an AR repository in the client project. The architect's onboarding then includes a step to <code>docker pull</code> from GHCR and re-tag/push to the client AR before <code>terraform apply</code>. Confirm the name and default.</li>
+  <li><strong>Locked design decisions for the seed document.</strong> Confirm wording for three new entries:
+    <ul>
+      <li>"Public-repo, private-deployment topology. The public repository contains the reusable pipeline and module. Per-client deployment configuration lives in client-controlled storage outside the public repository."</li>
+      <li>"GHCR is the scanner image distribution channel. The image is built from the public repository and published to <code>ghcr.io/leansecurity/leansec-nuclei</code>. Clients pull from GHCR directly or mirror into their own Artifact Registry."</li>
+      <li>"Cloud-side execution is architect-driven, not CI-driven. <code>terraform apply</code> runs from the architect's workstation against the client GCP project. Public-repo CI does not hold GCP credentials and never touches client infrastructure."</li>
+    </ul>
+  </li>
+</ol>
+<p>Sign off on these and the <code>project.yaml</code> follows.</p>
+
+</body>
+</html>

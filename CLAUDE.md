@@ -78,14 +78,14 @@ poetry run python -m pytest -q --maxfail=1 --disable-warnings
 ./scanner/scan.py <client>
 
 # Build Docker image (local) — build context is repo root, NOT docker/
-docker build -f docker/Dockerfile.local -t leansecurity/nuclei-scanner:local .
+docker build -f docker/Dockerfile.local -t leansecurity/leansec-nuclei:local .
 
 # Run a scan in the local container
 docker run --rm \
   -e CLIENT=<client> \
   -v "$(pwd)/deployments:/app/deployments:ro" \
   -v "$(pwd)/results:/app/results" \
-  leansecurity/nuclei-scanner:local
+  leansecurity/leansec-nuclei:local
 
 # Skip the nuclei -update-templates call at startup (air-gapped/CI)
 docker run --rm \
@@ -93,12 +93,12 @@ docker run --rm \
   -e UPDATE_TEMPLATES=false \
   -v "$(pwd)/deployments:/app/deployments:ro" \
   -v "$(pwd)/results:/app/results" \
-  leansecurity/nuclei-scanner:local
+  leansecurity/leansec-nuclei:local
 
 # Pin the Nuclei version at build time
 docker build -f docker/Dockerfile.local \
   --build-arg NUCLEI_VERSION=vX.Y.Z \
-  -t leansecurity/nuclei-scanner:local .
+  -t leansecurity/leansec-nuclei:local .
 
 # Terraform (per client)
 cd deployments/<client>
