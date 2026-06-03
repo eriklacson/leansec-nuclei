@@ -11,7 +11,7 @@ Companion to `.claude/scope.md`. Open questions resolved 2026-05-28; confirmed d
 5. **`docs/` directory** — create on first write under D3 (no permission needed).
 6. **All six `decisions_to_confirm` defaults accepted as a bundle:**
    - Image tag scheme: `:latest` + `:<short-sha>` + `:vX.Y.Z`
-   - GHCR image name: `ghcr.io/leansecurity/nuclei-scanner`
+   - GHCR image name: `ghcr.io/leansecurity/leansec-nuclei`
    - Bootstrap: bash script at `scripts/bootstrap-gcp-client.sh`
    - Delete `infra/gcp/workflows/scanner-image.yml`, write `.github/workflows/publish-image.yaml` from scratch
    - `enable_ar_mirror` default `false`
@@ -49,7 +49,7 @@ Done as a unit with B1 since both touch `main.tf`. Reorders into resource groups
 - `enable_scheduler` — `bool`, default `true`. Description per project.yaml.
 - `enable_wif` — `bool`, default `false`.
 - `enable_ar_mirror` — `bool`, default `false`.
-- `scanner_image` description updated to: "Scanner image URI (GHCR by default; any registry supported)." Default: `ghcr.io/leansecurity/nuclei-scanner:latest`. No validation block constraining the URI.
+- `scanner_image` description updated to: "Scanner image URI (GHCR by default; any registry supported)." Default: `ghcr.io/leansecurity/leansec-nuclei:latest`. No validation block constraining the URI.
 
 **`main.tf` changes:**
 - Move `terraform { required_providers { ... } }` block out to new `versions.tf` (pin `google ~> 6.0` for v6+ env block schema compatibility; matches B1 fix). Note: scope's "google ~> 5.0" is current state. Bumping to v6 is required for the env block schema fix; flag in report if architect prefers staying on v5.
@@ -122,7 +122,7 @@ terraform {
   - `docker/login-action@v3` with `registry: ghcr.io`, `username: ${{ github.actor }}`, `password: ${{ secrets.GITHUB_TOKEN }}`
   - `docker/metadata-action@v5` to compute tags: `type=raw,value=latest,enable={{is_default_branch}}`, `type=sha,format=short`, `type=semver,pattern={{version}}`
   - `docker/build-push-action@v6` with `context: .`, `file: docker/Dockerfile.local`, `push: true`, tags from metadata-action
-- Image name: `ghcr.io/leansecurity/nuclei-scanner`.
+- Image name: `ghcr.io/leansecurity/leansec-nuclei`.
 
 **Verify:**
 - `actionlint .github/workflows/publish-image.yaml` passes.
@@ -161,7 +161,7 @@ terraform {
 **Action:** rewrite files in place.
 
 - `main.tf` — module call with `source = "git::https://github.com/leansecurity/leansecurity-nuclei.git//infra/gcp?ref=v1.0.0"`, all variable assignments use placeholders.
-- `terraform.tfvars` — placeholder values (`project_id = "<your-project-id>"`, `client_name = "<client>"`, `scanner_image = "ghcr.io/leansecurity/nuclei-scanner:v1.0.0"`, `targets_file = "targets.txt"`).
+- `terraform.tfvars` — placeholder values (`project_id = "<your-project-id>"`, `client_name = "<client>"`, `scanner_image = "ghcr.io/leansecurity/leansec-nuclei:v1.0.0"`, `targets_file = "targets.txt"`).
 - `backend.tf` — GCS backend pointing at `<your-project-id>-tfstate-leansecurity-nuclei`.
 - `targets.txt` — single example line: `https://example.com`.
 - `README.md` — refresh to state: template only, copy to private storage, do not deploy from here; reference setup guide.
@@ -216,7 +216,7 @@ Append three verbatim decisions (per `decisions_to_confirm.seed_document_locked_
 - Remove "Cloud Deployment — Next Phase" "not yet available" section (lines ~124-126); replace with a Cloud-Automated mode section.
 - Update the mode table row for Cloud: link to setup guide instead of "Next phase / not yet available."
 - Add operating-model paragraph: public repo, private deployments, architect-driven `terraform apply`.
-- Add image-distribution note: `ghcr.io/leansecurity/nuclei-scanner`, pin semver in production.
+- Add image-distribution note: `ghcr.io/leansecurity/leansec-nuclei`, pin semver in production.
 - Cross-links: `docs/setup-guide.md`, `docs/gcp_architecture.md`, `infra/gcp/README.md`.
 - Preserve all existing Local CLI + Local Docker content unchanged.
 

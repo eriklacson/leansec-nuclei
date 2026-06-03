@@ -28,7 +28,7 @@ repository does not hold cloud credentials.
 
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `scanner_image` | `string` | `ghcr.io/leansecurity/nuclei-scanner:latest` | Scanner image URI. Pin to a semver tag in production. |
+| `scanner_image` | `string` | `ghcr.io/leansecurity/leansec-nuclei:latest` | Scanner image URI. Pin to a semver tag in production. |
 | `region` | `string` | `asia-southeast1` | GCP region for regional resources. |
 | `profiles_file` | `string` | `scanner/profiles/profiles.yaml` | Local path to profiles.yaml; uploaded to the config bucket. |
 | `schedule_cron` | `string` | `0 2 1-7 * 0` | Cron expression for the scheduled scan. Ignored when `enable_scheduler = false`. |
@@ -66,7 +66,7 @@ module "nuclei" {
 
   project_id    = "client-prod-1234"
   client_name   = "acme"
-  scanner_image = "ghcr.io/leansecurity/nuclei-scanner:v1.0.0"
+  scanner_image = "ghcr.io/leansecurity/leansec-nuclei:v1.0.0"
   targets_file  = "${path.module}/targets.txt"
 
   # enable_wif            = true

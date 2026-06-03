@@ -54,7 +54,7 @@ decisions_to_confirm:
       without simplifying anything meaningful.
 
   - id: ghcr_image_name
-    decision: ghcr.io/leansecurity/nuclei-scanner
+    decision: ghcr.io/leansecurity/leansec-nuclei
     rationale: |
       Names the artifact by its role (scanner), not the repo (which contains
       more than just the scanner image). Better discoverability for open-source
@@ -102,7 +102,7 @@ decisions_to_confirm:
          repository."
       - "GHCR is the scanner image distribution channel. The image is built
          from the public repository and published to
-         ghcr.io/leansecurity/nuclei-scanner. Clients pull from GHCR directly
+         ghcr.io/leansecurity/leansec-nuclei. Clients pull from GHCR directly
          or mirror into their own Artifact Registry."
       - "Cloud-side execution is architect-driven, not CI-driven. terraform
          apply runs from the architect's workstation against the client GCP
@@ -243,7 +243,7 @@ workstreams:
             type: bool
             default: false
             description: "Provision a google_artifact_registry_repository in this client project for mirroring the GHCR image"
-        scanner_image_default: ghcr.io/leansecurity/nuclei-scanner:latest  # placeholder; production deployments must pin
+        scanner_image_default: ghcr.io/leansecurity/leansec-nuclei:latest  # placeholder; production deployments must pin
         preserved_interface:
           - "Required variables: project_id, client_name, scanner_image, targets_file"
           - "Outputs: config_bucket_name, results_bucket_name, cloud_run_job_name, scheduler_job_name (null when scheduler disabled), scanner_service_account_email"
@@ -292,7 +292,7 @@ workstreams:
           - "Old scanner-image.yml does not exist in the working tree"
           - "Workflow syntax-validates locally via actionlint"
           - verified_by: architect
-            check: "First successful push to ghcr.io/leansecurity/nuclei-scanner from a real CI run"
+            check: "First successful push to ghcr.io/leansecurity/leansec-nuclei from a real CI run"
 
       - id: B6
         title: Write scripts/bootstrap-gcp-client.sh
@@ -408,7 +408,7 @@ workstreams:
           - "Cloud-automated mode section (replaces the 'not yet available' notice)"
           - "Operating model paragraph: public repo, private deployments, architect-driven"
           - "Links: → docs/setup-guide.md, → docs/gcp_architecture.md, → infra/gcp/README.md"
-          - "Image distribution note: ghcr.io/leansecurity/nuclei-scanner"
+          - "Image distribution note: ghcr.io/leansecurity/leansec-nuclei"
         constraints:
           - "Existing local CLI documentation preserved unchanged"
           - "No client-identifying examples; all examples use <your-client> or example.com"

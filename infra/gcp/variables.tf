@@ -13,7 +13,7 @@ variable "client_name" {
 variable "scanner_image" {
   description = "Scanner image URI. GHCR is the canonical distribution channel; any OCI registry the Cloud Run service account can read is accepted."
   type        = string
-  default     = "ghcr.io/leansecurity/nuclei-scanner:latest"
+  default     = "ghcr.io/leansecurity/leansec-nuclei:latest"
 }
 
 variable "targets_file" {

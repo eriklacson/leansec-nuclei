@@ -27,7 +27,7 @@ changes.
 
 - Docker Engine or Docker Desktop with Compose v2
 - The scanner image built locally:
-  `docker build -f docker/Dockerfile.local -t leansecurity/nuclei-scanner:local .`
+  `docker build -f docker/Dockerfile.local -t leansecurity/leansec-nuclei:local .`
 - Disk space for three vulnerable-app images (~2GB total)
 
 ## Bring up the harness
@@ -56,7 +56,7 @@ docker run --rm \
   -e CLIENT=_validation \
   -v "$(pwd)/deployments:/app/deployments:ro" \
   -v "$(pwd)/results:/app/results" \
-  leansecurity/nuclei-scanner:local
+  leansecurity/leansec-nuclei:local
 ```
 
 Key points:
@@ -85,7 +85,7 @@ If you see zero findings:
    `docker network inspect scanner-validation | grep -A2 Containers`
    The scanner container and the three apps should all be listed.
 3. Confirm Nuclei templates are present inside the image:
-   `docker run --rm --entrypoint sh leansecurity/nuclei-scanner:local -c "ls ~/.local/nuclei-templates/ 2>/dev/null | head"`
+   `docker run --rm --entrypoint sh leansecurity/leansec-nuclei:local -c "ls ~/.local/nuclei-templates/ 2>/dev/null | head"`
    If empty, the in-container template update is failing — investigate
    network egress from the container.
 

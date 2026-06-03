@@ -83,7 +83,7 @@
 <p>Once provisioned, each client's scanner runs autonomously inside the client's GCP project on a Cloud Scheduler cadence. The architect's involvement ends with <code>terraform apply</code>. GCP itself closes the operational loop.</p>
 
 <h3>Scanner image distribution via GHCR</h3>
-<p>The scanner Docker image is built by the public repo's CI and published to GitHub Container Registry at <code>ghcr.io/leansecurity/nuclei-scanner:&lt;tag&gt;</code>. This is the open-source artifact. Cloud Run jobs in client projects pull from GHCR directly (or, optionally, mirror into the client's own Artifact Registry first — a per-deployment choice).</p>
+<p>The scanner Docker image is built by the public repo's CI and published to GitHub Container Registry at <code>ghcr.io/leansecurity/leansec-nuclei:&lt;tag&gt;</code>. This is the open-source artifact. Cloud Run jobs in client projects pull from GHCR directly (or, optionally, mirror into the client's own Artifact Registry first — a per-deployment choice).</p>
 
 <h3>Trust topology</h3>
 <div class="diagram">
@@ -104,7 +104,7 @@
 
   <rect x="380" y="30" width="260" height="80" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
   <text x="510" y="58" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="500" fill="#085041">GHCR</text>
-  <text x="510" y="78" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0F6E56">ghcr.io/leansecurity/nuclei-scanner</text>
+  <text x="510" y="78" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0F6E56">ghcr.io/leansecurity/leansec-nuclei</text>
   <text x="510" y="96" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0F6E56">public, semver tagged</text>
 
   <rect x="40" y="160" width="280" height="80" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
@@ -289,9 +289,9 @@
 <h3>GHCR image tagging</h3>
 <p>Images are tagged with three labels per build:</p>
 <ul>
-  <li><code>ghcr.io/leansecurity/nuclei-scanner:latest</code> — moves with every main-branch build. For experimentation only.</li>
-  <li><code>ghcr.io/leansecurity/nuclei-scanner:&lt;commit-sha&gt;</code> — immutable, traceable to source. For pinned deployments.</li>
-  <li><code>ghcr.io/leansecurity/nuclei-scanner:v1.2.3</code> — semantic version, set on Git tag push. The recommended pin for production deployments.</li>
+  <li><code>ghcr.io/leansecurity/leansec-nuclei:latest</code> — moves with every main-branch build. For experimentation only.</li>
+  <li><code>ghcr.io/leansecurity/leansec-nuclei:&lt;commit-sha&gt;</code> — immutable, traceable to source. For pinned deployments.</li>
+  <li><code>ghcr.io/leansecurity/leansec-nuclei:v1.2.3</code> — semantic version, set on Git tag push. The recommended pin for production deployments.</li>
 </ul>
 <p>Client tfvars should pin to a semver or SHA tag, never <code>:latest</code>. The pin is the deliberate decision point for scanner version rollout per client.</p>
 
@@ -395,7 +395,7 @@
 <ol>
   <li><code>scripts/bootstrap-gcp-client.sh</code> executes cleanly against a fresh GCP project, enables required APIs, and creates a working Terraform state bucket.</li>
   <li>A test client deployment folder exists in private storage with <code>main.tf</code>, <code>backend.tf</code>, <code>terraform.tfvars</code>, <code>targets.txt</code>, and references the public module via a Git source ref.</li>
-  <li><code>publish-image.yaml</code> in the public repo successfully builds and pushes the scanner image to <code>ghcr.io/leansecurity/nuclei-scanner</code> with the expected three tags.</li>
+  <li><code>publish-image.yaml</code> in the public repo successfully builds and pushes the scanner image to <code>ghcr.io/leansecurity/leansec-nuclei</code> with the expected three tags.</li>
   <li><code>terraform init</code> succeeds against the client state bucket from the architect workstation.</li>
   <li><code>terraform plan</code> shows the expected resources with no syntax errors and respects the default flags (scheduler on, WIF off).</li>
   <li><code>terraform apply</code> completes without errors.</li>
@@ -412,14 +412,14 @@
 <p>Before producing the <code>project.yaml</code>:</p>
 <ol>
   <li><strong>Image tag scheme.</strong> Use all three tags (<code>:latest</code>, <code>:&lt;sha&gt;</code>, <code>:v1.2.3</code>) as described in §5, or a subset?</li>
-  <li><strong>GHCR image name.</strong> <code>ghcr.io/leansecurity/nuclei-scanner</code> (matches the artifact's role) or <code>ghcr.io/leansecurity/leansecurity-nuclei</code> (matches the repo name)?</li>
+  <li><strong>GHCR image name.</strong> <code>ghcr.io/leansecurity/leansec-nuclei</code> (matches the artifact's role) or <code>ghcr.io/leansecurity/leansecurity-nuclei</code> (matches the repo name)?</li>
   <li><strong>Bootstrap script vs. documentation only.</strong> Ship <code>scripts/bootstrap-gcp-client.sh</code> as an executable bash script, or document the gcloud commands inline in <code>infra/gcp/README.md</code> only? Script is more useful for repeatability; doc-only is more visible.</li>
   <li><strong>Existing <code>infra/gcp/workflows/scanner-image.yml</code>.</strong> Delete entirely, or repurpose as the basis for <code>publish-image.yaml</code>?</li>
   <li><strong>Artifact Registry mirror flag name.</strong> Proposed: <code>enable_ar_mirror</code> (default <code>false</code>). If enabled, the module provisions an AR repository in the client project. The architect's onboarding then includes a step to <code>docker pull</code> from GHCR and re-tag/push to the client AR before <code>terraform apply</code>. Confirm the name and default.</li>
   <li><strong>Locked design decisions for the seed document.</strong> Confirm wording for three new entries:
     <ul>
       <li>"Public-repo, private-deployment topology. The public repository contains the reusable pipeline and module. Per-client deployment configuration lives in client-controlled storage outside the public repository."</li>
-      <li>"GHCR is the scanner image distribution channel. The image is built from the public repository and published to <code>ghcr.io/leansecurity/nuclei-scanner</code>. Clients pull from GHCR directly or mirror into their own Artifact Registry."</li>
+      <li>"GHCR is the scanner image distribution channel. The image is built from the public repository and published to <code>ghcr.io/leansecurity/leansec-nuclei</code>. Clients pull from GHCR directly or mirror into their own Artifact Registry."</li>
       <li>"Cloud-side execution is architect-driven, not CI-driven. <code>terraform apply</code> runs from the architect's workstation against the client GCP project. Public-repo CI does not hold GCP credentials and never touches client infrastructure."</li>
     </ul>
   </li>

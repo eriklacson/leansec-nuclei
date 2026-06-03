@@ -20,7 +20,7 @@ The workflow also declares `permissions: packages: write` explicitly, but the or
 
 ### 2. First publish creates a private package
 
-The first successful run of `publish-image.yaml` creates `ghcr.io/leansecurity/nuclei-scanner` as a **private** package by default. End users (Cloud Run jobs in client GCP projects) cannot pull a private package without auth.
+The first successful run of `publish-image.yaml` creates `ghcr.io/leansecurity/leansec-nuclei` as a **private** package by default. End users (Cloud Run jobs in client GCP projects) cannot pull a private package without auth.
 
 Flip it to public:
 
@@ -38,7 +38,7 @@ On the same package settings page:
 
 ```bash
 # As an anonymous user (no docker login):
-docker pull ghcr.io/leansecurity/nuclei-scanner:latest
+docker pull ghcr.io/leansecurity/leansec-nuclei:latest
 ```
 
 Should succeed with no auth prompt. If it asks for credentials, the package is still private.
@@ -88,7 +88,7 @@ Before deciding the build is good enough to promote to a semver tag, pull the ne
 # Find the short SHA from the Actions run, or:
 SHA=$(git rev-parse --short HEAD)
 
-docker pull ghcr.io/leansecurity/nuclei-scanner:sha-${SHA}
+docker pull ghcr.io/leansecurity/leansec-nuclei:sha-${SHA}
 
 docker compose -f tests/validation/docker-compose.yaml up -d
 
@@ -97,7 +97,7 @@ docker run --rm \
   -e CLIENT=_validation \
   -v "$(pwd)/deployments:/app/deployments:ro" \
   -v "$(pwd)/results:/app/results" \
-  ghcr.io/leansecurity/nuclei-scanner:sha-${SHA}
+  ghcr.io/leansecurity/leansec-nuclei:sha-${SHA}
 
 # Expect findings > 0 across multiple profiles. Zero findings means the
 # new image regressed something — investigate before promoting.
@@ -168,8 +168,8 @@ After the Actions run goes green:
 # Look for the new tag in the version list.
 
 # Or pull anonymously to confirm visibility + content:
-docker pull ghcr.io/leansecurity/nuclei-scanner:v1.2.3
-docker run --rm ghcr.io/leansecurity/nuclei-scanner:v1.2.3 nuclei -version
+docker pull ghcr.io/leansecurity/leansec-nuclei:v1.2.3
+docker run --rm ghcr.io/leansecurity/leansec-nuclei:v1.2.3 nuclei -version
 ```
 
 `nuclei -version` exits 0 with the pinned `NUCLEI_VERSION` from the Dockerfile. If the image pulls but the version string is wrong, the build picked up a stale Nuclei binary — investigate before announcing the release.

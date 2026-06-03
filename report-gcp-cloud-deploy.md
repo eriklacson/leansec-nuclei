@@ -10,7 +10,7 @@ Companion to [`.claude/scope.md`](.claude/scope.md) and [`.claude/plan.md`](.cla
 |----|-------|--------|-------|
 | B1 | Fix Terraform env block formatting | ✅ done | Cloud Run job env entries rewritten as multi-line blocks; provider bumped to `google ~> 6.0` (new [`versions.tf`](infra/gcp/versions.tf)). |
 | B2 | Profiles.yaml ↔ entrypoint.sh drift | ✅ verified (no-op) | Static inspection confirms all 7 `profiles.yaml` `output:` stems equal their profile keys; `entrypoint.sh` delegates to `scan.py` (no hardcoded nuclei invocations beyond `-update-templates`); `scan.py` constructs filenames as `{stem}_{YYYY-MM}.jsonl`. Drift described in project.yaml is fully resolved in current code. |
-| B3 | Rewrite `infra/gcp/` module | ✅ done | Added `enable_scheduler`, `enable_wif`, `enable_ar_mirror` variables; scheduler/WIF/AR-mirror resources behind `count`; `scheduler_job_name` returns null when disabled; new outputs for WIF/AR. `scanner_image` accepts any URI; default `ghcr.io/leansecurity/nuclei-scanner:latest`. |
+| B3 | Rewrite `infra/gcp/` module | ✅ done | Added `enable_scheduler`, `enable_wif`, `enable_ar_mirror` variables; scheduler/WIF/AR-mirror resources behind `count`; `scheduler_job_name` returns null when disabled; new outputs for WIF/AR. `scanner_image` accepts any URI; default `ghcr.io/leansecurity/leansec-nuclei:latest`. |
 | B4 | Delete `infra/gcp/workflows/deploy.yml` | ✅ done | `git rm`'d. |
 | B5 | publish-image.yaml + delete scanner-image.yml | ✅ done | New [`.github/workflows/publish-image.yaml`](.github/workflows/publish-image.yaml) builds and pushes to GHCR with three-tag scheme via `docker/metadata-action@v5`. Old `scanner-image.yml` deleted. |
 | B6 | `scripts/bootstrap-gcp-client.sh` | ✅ done | Idempotent bash; `set -euo pipefail`; shellcheck clean; `--help` exits 0; no-args exits 1 with usage. |
@@ -49,7 +49,7 @@ Companion to [`.claude/scope.md`](.claude/scope.md) and [`.claude/plan.md`](.cla
 
 These items in the project.yaml are marked `verified_by: architect` and require real GCP credentials. Claude Code does not run them:
 
-- **B5** — first successful image push to `ghcr.io/leansecurity/nuclei-scanner` from a real CI run.
+- **B5** — first successful image push to `ghcr.io/leansecurity/leansec-nuclei` from a real CI run.
 - **B6** — `scripts/bootstrap-gcp-client.sh` executed against a fresh GCP test project.
 - **S1** — end-to-end setup guide walkthrough against a fresh test GCP project producing a working deployment with no out-of-doc steps required.
 - **Brief §9 items 4–13** — full cloud-side acceptance checklist (terraform init/plan/apply, manual scan, JSONL filename verification, scheduler state, flag-flip plans).

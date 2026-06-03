@@ -7,7 +7,7 @@ Source: `.claude/docs/project.yaml` (feature: `gcp-cloud-deploy`, mode: build, v
 Activate the GCP Cloud Automated deployment tier of `leansecurity-nuclei`. The Terraform module, container entrypoint, and gated CI workflows exist as scaffolding but have never been validated end-to-end. This feature:
 
 1. Rewrites the GCP module to support a **public-repo / private-deployments** topology with optional flags.
-2. Publishes the scanner image to **GHCR** (`ghcr.io/leansecurity/nuclei-scanner`) as the canonical distribution channel.
+2. Publishes the scanner image to **GHCR** (`ghcr.io/leansecurity/leansec-nuclei`) as the canonical distribution channel.
 3. Fixes two known defects (Terraform env block formatting; entrypoint↔profiles drift).
 4. Ships an architect-driven onboarding runbook (bootstrap script + setup guide).
 5. Produces consumer-facing documentation for the open-source release.

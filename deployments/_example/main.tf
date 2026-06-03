@@ -41,5 +41,5 @@ variable "client_name" {
 variable "scanner_image" {
   description = "Scanner image URI, pinned to a semver tag for production"
   type        = string
-  default     = "ghcr.io/leansecurity/nuclei-scanner:v1.0.0"
+  default     = "ghcr.io/leansecurity/leansec-nuclei:v1.0.0"
 }

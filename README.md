@@ -16,7 +16,7 @@ Automated Nuclei scans against external assets. Three deployment modes share the
 
 This repository contains the reusable pipeline (scanner core, container, GCP module). **Per-client deployment configuration lives in client-controlled storage outside this repo.** `terraform apply` is run from an architect's workstation against the client GCP project; the public-repo CI never holds GCP credentials and never touches client infrastructure.
 
-The scanner image is distributed via GitHub Container Registry: [`ghcr.io/leansecurity/nuclei-scanner`](https://ghcr.io/leansecurity/nuclei-scanner). Production deployments pin to a semver tag.
+The scanner image is distributed via GitHub Container Registry: [`ghcr.io/leansecurity/leansec-nuclei`](https://ghcr.io/leansecurity/leansec-nuclei). Production deployments pin to a semver tag.
 
 For the full picture: [`docs/gcp_architecture.md`](docs/gcp_architecture.md) · [module reference](infra/gcp/README.md) · [end-to-end setup guide](docs/setup-guide.md).
 
@@ -49,14 +49,14 @@ Local Docker is a deployment vehicle for the same `scan.py` the Local CLI runs �
 
 ```bash
 # Build (build context is repo root, NOT docker/)
-docker build -f docker/Dockerfile.local -t leansecurity/nuclei-scanner:local .
+docker build -f docker/Dockerfile.local -t leansecurity/leansec-nuclei:local .
 
 # Run a scan
 docker run --rm \
   -e CLIENT=<client> \
   -v "$(pwd)/deployments:/app/deployments:ro" \
   -v "$(pwd)/results:/app/results" \
-  leansecurity/nuclei-scanner:local
+  leansecurity/leansec-nuclei:local
 
 # Results land in results/<client>/YYYY-MM/ on the host, just like Local CLI.
 ```
@@ -85,7 +85,7 @@ docker run --rm \
   -e CLIENT=_validation \
   -v "$(pwd)/deployments:/app/deployments:ro" \
   -v "$(pwd)/results:/app/results" \
-  leansecurity/nuclei-scanner:local
+  leansecurity/leansec-nuclei:local
 
 # Tear down
 docker compose -f tests/validation/docker-compose.yaml down
@@ -133,7 +133,7 @@ terraform plan
 terraform apply
 ```
 
-The scanner image is pulled from GHCR (`ghcr.io/leansecurity/nuclei-scanner`). Production deployments pin to a semver tag. The full walkthrough — including troubleshooting for the common failure modes (API not enabled, IAM denied, image pull failure, etc.) — is in [`docs/setup-guide.md`](docs/setup-guide.md). Maintainers publishing new image versions: see [`docs/release.md`](docs/release.md).
+The scanner image is pulled from GHCR (`ghcr.io/leansecurity/leansec-nuclei`). Production deployments pin to a semver tag. The full walkthrough — including troubleshooting for the common failure modes (API not enabled, IAM denied, image pull failure, etc.) — is in [`docs/setup-guide.md`](docs/setup-guide.md). Maintainers publishing new image versions: see [`docs/release.md`](docs/release.md).
 
 AWS and Azure modules under `infra/aws/` and `infra/azure/` are stubs and not part of the current activation.
 
