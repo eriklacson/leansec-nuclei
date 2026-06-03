@@ -137,7 +137,7 @@ Next steps
 2. Edit terraform.tfvars in your copy:
      project_id    = "${PROJECT_ID}"
      client_name   = "<client>"
-     scanner_image = "ghcr.io/leansecurity/leansec-nuclei:vX.Y.Z"
+     scanner_image = "ghcr.io/eriklacson/leansec-nuclei:vX.Y.Z"
      targets_file  = "targets.txt"
 
 3. Edit backend.tf to point at the state bucket:
