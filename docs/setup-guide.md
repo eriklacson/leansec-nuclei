@@ -73,7 +73,7 @@ Edit `terraform.tfvars` and replace the placeholders:
 ```hcl
 project_id    = "<your-project-id>"
 client_name   = "<your-client-name>"
-scanner_image = "ghcr.io/leansecurity/leansec-nuclei:v1.0.0"
+scanner_image = "ghcr.io/eriklacson/leansec-nuclei:v1.0.0"
 ```
 
 Notes:
@@ -261,7 +261,7 @@ When a new `vX.Y.Z` tag is published to GHCR:
 
 ```bash
 # In terraform.tfvars
-scanner_image = "ghcr.io/leansecurity/leansec-nuclei:vX.Y.Z"
+scanner_image = "ghcr.io/eriklacson/leansec-nuclei:vX.Y.Z"
 ```
 
 ```bash
@@ -349,7 +349,7 @@ Error: Image '<...>:<...>' is not accessible from your project ...
 Possible causes:
 
 1. **GHCR rate limit / anonymous pull blocked.** GHCR allows anonymous pulls for public images, but some networks block egress. If this is the issue, enable `enable_ar_mirror = true`, mirror the GHCR image into the client's AR, and re-apply with `scanner_image` pointed at the AR URI. See the [module reference](../infra/gcp/README.md#enable_ar_mirror-default-false).
-2. **Typo in the image tag.** Verify the tag exists at [ghcr.io/leansecurity/leansec-nuclei](https://ghcr.io/leansecurity/leansec-nuclei).
+2. **Typo in the image tag.** Verify the tag exists at [ghcr.io/eriklacson/leansec-nuclei](https://ghcr.io/eriklacson/leansec-nuclei).
 3. **Scanner SA lacks AR read** (only when mirroring). Grant `roles/artifactregistry.reader` to the scanner SA on the AR repo.
 
 ### Cloud Run job timeout

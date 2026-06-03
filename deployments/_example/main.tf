@@ -6,7 +6,7 @@
 # semver tag. Use a tag rather than a branch so the module shape is
 # reproducible across applies.
 module "nuclei" {
-  source = "git::https://github.com/leansecurity/leansecurity-nuclei.git//infra/gcp?ref=v1.0.0"
+  source = "git::https://github.com/eriklacson/leansec-nuclei.git//infra/gcp?ref=v1.0.0"
 
   project_id    = var.project_id
   client_name   = var.client_name
@@ -41,5 +41,5 @@ variable "client_name" {
 variable "scanner_image" {
   description = "Scanner image URI, pinned to a semver tag for production"
   type        = string
-  default     = "ghcr.io/leansecurity/leansec-nuclei:v1.0.0"
+  default     = "ghcr.io/eriklacson/leansec-nuclei:v1.0.0"
 }

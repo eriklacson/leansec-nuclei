@@ -15,7 +15,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: leansecurity/leansec-nuclei
+  IMAGE_NAME: eriklacson/leansec-nuclei
 
 jobs:
   build-push:

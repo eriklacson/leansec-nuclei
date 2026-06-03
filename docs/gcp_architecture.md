@@ -24,7 +24,7 @@ Once provisioned, each client's scanner runs autonomously inside the client's GC
 
 ### Scanner image distribution via GHCR
 
-The scanner Docker image is built by the public repo's CI and published to GitHub Container Registry at `ghcr.io/leansecurity/leansec-nuclei:<tag>`. This is the open-source artifact. Cloud Run jobs in client projects pull from GHCR directly, or optionally mirror into the client's own Artifact Registry first (a per-deployment choice gated by [`enable_ar_mirror`](../infra/gcp/README.md#enable_ar_mirror-default-false)).
+The scanner Docker image is built by the public repo's CI and published to GitHub Container Registry at `ghcr.io/eriklacson/leansec-nuclei:<tag>`. This is the open-source artifact. Cloud Run jobs in client projects pull from GHCR directly, or optionally mirror into the client's own Artifact Registry first (a per-deployment choice gated by [`enable_ar_mirror`](../infra/gcp/README.md#enable_ar_mirror-default-false)).
 
 ### Trust topology
 
@@ -35,7 +35,7 @@ flowchart TD
     Module["Terraform module<br/>(infra/gcp/)"]
   end
 
-  GHCR["GHCR<br/>ghcr.io/leansecurity/leansec-nuclei<br/>(public, semver tagged)"]
+  GHCR["GHCR<br/>ghcr.io/eriklacson/leansec-nuclei<br/>(public, semver tagged)"]
   Arch["Architect workstation<br/>terraform apply<br/>(gcloud auth as architect)"]
 
   subgraph Private["Client-controlled storage"]
@@ -135,9 +135,9 @@ There is **no client-deploy CI in the public repo**. The "gated workflow" patter
 
 Images are tagged with three labels per build:
 
-- `ghcr.io/leansecurity/leansec-nuclei:latest` — moves with every main-branch build. For experimentation only.
-- `ghcr.io/leansecurity/leansec-nuclei:<short-sha>` — immutable, traceable to source. For pinned deployments.
-- `ghcr.io/leansecurity/leansec-nuclei:vX.Y.Z` — semantic version, set on Git tag push. The recommended pin for production deployments.
+- `ghcr.io/eriklacson/leansec-nuclei:latest` — moves with every main-branch build. For experimentation only.
+- `ghcr.io/eriklacson/leansec-nuclei:<short-sha>` — immutable, traceable to source. For pinned deployments.
+- `ghcr.io/eriklacson/leansec-nuclei:vX.Y.Z` — semantic version, set on Git tag push. The recommended pin for production deployments.
 
 Client `tfvars` should pin to a semver or SHA tag, never `:latest`. The pin is the deliberate decision point for scanner version rollout per client.
 

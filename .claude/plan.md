@@ -1,302 +1,184 @@
-# Plan — gcp-cloud-deploy
+# Plan — Fix GHCR namespace (`leansecurity` → `eriklacson`)
 
-Companion to `.claude/scope.md`. Open questions resolved 2026-05-28; confirmed decisions captured in **Assumptions** below.
+Companion to `.claude/report.md` (investigation, 2026-06-03). Resolves the "package cannot
+be found" failure: GHCR packages live under the **repo owner's** namespace, and the repo is
+owned by the personal account `eriklacson` (`git@github.com:eriklacson/leansec-nuclei.git`),
+so `GITHUB_TOKEN` cannot push to `ghcr.io/leansecurity/*`.
 
-## Assumptions (confirmed)
+## Decision (confirmed by architect, 2026-06-03)
 
-1. **B2 is verification-only.** No edits to `docker/entrypoint.sh`. Deliverable becomes an end-to-end local-Docker run that confirms JSONL filenames match `profiles.yaml` keys exactly.
-2. **`.gitignore` rewrite:** replace blanket `deployments/` ignore with `deployments/*` + `!deployments/_example/` (B8).
-3. **B1 phrasing** — env blocks aren't literally truncated; they're single-line and fail `fmt`. Rewrite as multi-line `env { name = ...; value = ... }` blocks.
-4. **`deployments/_example/README.md` already exists** — refresh, not create (B7).
-5. **`docs/` directory** — create on first write under D3 (no permission needed).
-6. **All six `decisions_to_confirm` defaults accepted as a bundle:**
-   - Image tag scheme: `:latest` + `:<short-sha>` + `:vX.Y.Z`
-   - GHCR image name: `ghcr.io/leansecurity/leansec-nuclei`
-   - Bootstrap: bash script at `scripts/bootstrap-gcp-client.sh`
-   - Delete `infra/gcp/workflows/scanner-image.yml`, write `.github/workflows/publish-image.yaml` from scratch
-   - `enable_ar_mirror` default `false`
-   - Append three locked design decisions verbatim to `.claude/docs/LeanSecurity_Nuclei_seed_document.md`
+- **Ship under `eriklacson`.** Reverts the rename in commit `ab0d275`. No GitHub-org work.
+- Workflow `IMAGE_NAME` set to the **explicit literal** `eriklacson/leansec-nuclei`
+  (architect chose explicit over `${{ github.repository }}`). A one-line note on the
+  `github.repository` alternative is kept in the migration section for the future-org case.
+- Three distinct "not found" defects are fixed in one pass:
+  1. **GHCR image namespace** — `ghcr.io/leansecurity/leansec-nuclei` → `ghcr.io/eriklacson/leansec-nuclei`.
+  2. **Terraform module source repo** — `github.com/leansecurity/leansecurity-nuclei` (doubled name, non-existent) → `github.com/eriklacson/leansec-nuclei`.
+  3. **Package-page URLs** — `github.com/orgs/leansecurity/.../nuclei-scanner` → `github.com/users/eriklacson/packages/container/package/leansec-nuclei` (also fixes pre-rename `nuclei-scanner` → `leansec-nuclei`).
+
+## Scope boundary — what is NOT a namespace problem
+
+These strings contain `leansecurity` but are **not** the GHCR owner; they do not affect package
+resolution. Default: **leave them** (project brand name is still "Lean Security"). Renaming is a
+separate cosmetic decision (Phase 3), not required for the fix.
+
+- Project-name prose `leansecurity-nuclei` (README.md:143, docs/*, deployments/_example/README.md:10).
+- State-bucket suffix `*-tfstate-leansecurity-nuclei` (backend.tf:6, setup-guide.md:39/47/48/93, bootstrap script).
+- Local-only build tags `leansecurity/leansec-nuclei:local` / `:test-local` — never pushed to GHCR.
+
+---
 
 ## Sequencing
 
-Strict: `build → documentation → setup-guide`. Each workstream's acceptance must pass before the next begins. Within `build`, ordering chosen to minimize rework: defects + module first, then CI workflows that reference the module, then example folder, then placeholder cleanup.
+Strict gate order: **Phase 1 (operative) → Phase 2 (docs) → Phase 3 (cosmetic, optional) →
+Phase 4 (manual GitHub, architect)**. Phase 1 alone makes the package publishable; Phases 2–3
+are consistency. Phase 4 cannot be done from the repo and is the architect's.
 
 ---
 
-## Workstream B — Build
+## Phase 1 — Operative changes (required for the package to exist & be pullable)
 
-### B1. Fix Terraform env blocks (`infra/gcp/main.tf`)
+| # | File | Line | Current | Change to |
+|---|---|---|---|---|
+| 1.1 | `.github/workflows/publish-image.yaml` | 18 | `IMAGE_NAME: leansecurity/leansec-nuclei` | `IMAGE_NAME: eriklacson/leansec-nuclei` |
+| 1.2 | `infra/gcp/variables.tf` | 16 | `default = "ghcr.io/leansecurity/leansec-nuclei:latest"` | `...eriklacson/leansec-nuclei:latest` |
+| 1.3 | `deployments/_example/terraform.tfvars` | 4 | `scanner_image = "ghcr.io/leansecurity/leansec-nuclei:v1.0.0"` | `...eriklacson/...:v1.0.0` |
+| 1.4 | `deployments/_example/main.tf` | 9 | `source = "git::https://github.com/leansecurity/leansecurity-nuclei.git//infra/gcp?ref=v1.0.0"` | `...github.com/eriklacson/leansec-nuclei.git//infra/gcp?ref=v1.0.0` |
+| 1.5 | `deployments/_example/main.tf` | 44 | `default = "ghcr.io/leansecurity/leansec-nuclei:v1.0.0"` | `...eriklacson/...:v1.0.0` |
+| 1.6 | `scripts/bootstrap-gcp-client.sh` | 140 | `scanner_image = "ghcr.io/leansecurity/leansec-nuclei:vX.Y.Z"` | `...eriklacson/...:vX.Y.Z` |
 
-**Action:** rewrite lines 101-105 of the Cloud Run job `containers` block. Each `env` entry becomes a multi-line block matching v6+ provider schema. Order preserved.
+**Watchpoint (1.4):** the module `source` pins `?ref=v1.0.0`. Fixing the URL only helps if a
+`v1.0.0` git tag actually exists on `eriklacson/leansec-nuclei`. If it does not, `terraform init`
+still fails — just with a different error. Flag in report; confirm tag exists or adjust the ref.
 
-**Form per entry:**
-```hcl
-env {
-  name  = "CLOUD_PROVIDER"
-  value = "gcp"
-}
-```
-
-**Verify:** `terraform validate` + `terraform fmt -check` in `infra/gcp/`.
-
----
-
-### B3. Rewrite `infra/gcp/` module
-
-Done as a unit with B1 since both touch `main.tf`. Reorders into resource groups matching the module shape.
-
-**`variables.tf` additions:**
-- `enable_scheduler` — `bool`, default `true`. Description per project.yaml.
-- `enable_wif` — `bool`, default `false`.
-- `enable_ar_mirror` — `bool`, default `false`.
-- `scanner_image` description updated to: "Scanner image URI (GHCR by default; any registry supported)." Default: `ghcr.io/leansecurity/leansec-nuclei:latest`. No validation block constraining the URI.
-
-**`main.tf` changes:**
-- Move `terraform { required_providers { ... } }` block out to new `versions.tf` (pin `google ~> 6.0` for v6+ env block schema compatibility; matches B1 fix). Note: scope's "google ~> 5.0" is current state. Bumping to v6 is required for the env block schema fix; flag in report if architect prefers staying on v5.
-- Cloud Scheduler job + scheduler service account + `google_cloud_run_v2_job_iam_member.scheduler_invoker`: gate behind `count = var.enable_scheduler ? 1 : 0`.
-- Add WIF resources behind `count = var.enable_wif ? 1 : 0`: `google_iam_workload_identity_pool`, `google_iam_workload_identity_pool_provider`, `google_service_account_iam_member` binding the WIF principal to the scanner SA.
-- Add AR mirror behind `count = var.enable_ar_mirror ? 1 : 0`: `google_artifact_registry_repository` (Docker format, region from `var.region`).
-- `scanner_image` flows straight into `containers.image` — no path validation.
-- Remove `var.profiles_file` upload? **No** — current module uploads `profiles.yaml` to the config bucket. Project.yaml does not mention removing it, so preserve.
-
-**`outputs.tf` changes:**
-- `scheduler_job_name`: change to `value = var.enable_scheduler ? google_cloud_scheduler_job.nuclei[0].name : null`.
-- Other outputs unchanged.
-
-**`versions.tf` (new):**
-```hcl
-terraform {
-  required_version = ">= 1.8"
-  required_providers {
-    google = {
-      source  = "hashicorp/google"
-      version = "~> 6.0"
-    }
-  }
-}
-```
-
-**Verify:**
-- `terraform validate` and `terraform fmt -check` pass.
-- `terraform plan` with no flags: buckets + Cloud Run job + scheduler + SAs + IAM bindings appear; no AR repo, no WIF.
-- `terraform plan -var='enable_scheduler=false'`: scheduler + scheduler SA + invoker binding absent.
-- `terraform plan -var='enable_wif=true'`: WIF pool, provider, SA binding present.
-- `terraform plan -var='enable_ar_mirror=true'`: AR repo present.
-
-(Plan dry-runs use `terraform plan -refresh=false` against fake `project_id`/`client_name`/`targets_file` tfvars; no GCP credentials needed.)
-
----
-
-### B2. Verify profile-name alignment (no code change)
-
-**Action:** confirm by inspection + dry-run:
-1. Read `scanner/profiles/profiles.yaml` and list all `output:` values.
-2. Confirm each matches its profile key.
-3. Build local Docker image, run with `CLIENT=_validation` and `CLOUD_PROVIDER=local`, list produced JSONL filenames.
-4. Confirm filename set equals `{baseline_web,patch_cve,identity_remote_access,data_protection,transport_security,owasp_top10_core,vuln_monitoring}_<YYYY-MM>.jsonl`.
-
-**Acceptance:** documented confirmation in report; no file edits.
-
----
-
-### B4. Delete `infra/gcp/workflows/deploy.yml`
-
-**Action:** `git rm infra/gcp/workflows/deploy.yml`.
-
-**Verify:** file absent; `git status` clean for that path.
-
----
-
-### B5. Replace scanner-image workflow
-
-**Action:**
-1. `git rm infra/gcp/workflows/scanner-image.yml`.
-2. Write new `.github/workflows/publish-image.yaml`.
-
-**`publish-image.yaml` shape:**
-- Trigger: `push` to `main` with paths `docker/**`, `scanner/**`; and `push` of tags `v*`.
-- Permissions: `contents: read`, `packages: write`.
-- Steps:
-  - `actions/checkout@v4`
-  - `docker/setup-buildx-action@v3`
-  - `docker/login-action@v3` with `registry: ghcr.io`, `username: ${{ github.actor }}`, `password: ${{ secrets.GITHUB_TOKEN }}`
-  - `docker/metadata-action@v5` to compute tags: `type=raw,value=latest,enable={{is_default_branch}}`, `type=sha,format=short`, `type=semver,pattern={{version}}`
-  - `docker/build-push-action@v6` with `context: .`, `file: docker/Dockerfile.local`, `push: true`, tags from metadata-action
-- Image name: `ghcr.io/leansecurity/leansec-nuclei`.
-
-**Verify:**
+**Verify Phase 1:**
+- `grep -rn "leansecurity/leansec-nuclei\|leansecurity-nuclei.git" <Phase-1 files>` → zero hits.
+- `terraform fmt -check` + `terraform validate` in `infra/gcp/` pass.
 - `actionlint .github/workflows/publish-image.yaml` passes.
-- Old `infra/gcp/workflows/scanner-image.yml` absent.
-- `verified_by: architect` — first real CI push to GHCR.
-
----
-
-### B6. `scripts/bootstrap-gcp-client.sh`
-
-**Action:** create `scripts/` directory, write executable bash script.
-
-**Contract:**
-- Args: `$1` project_id (required), `$2` region (default `asia-southeast1`), `$3` state bucket name (default `${project_id}-tfstate-leansecurity-nuclei`).
-- Behavior:
-  1. `set -euo pipefail` at top.
-  2. Print usage and exit 1 if no args; print usage and exit 0 if `--help`.
-  3. `gcloud config set project "$project_id"`.
-  4. `gcloud services enable run.googleapis.com storage.googleapis.com iam.googleapis.com cloudscheduler.googleapis.com iamcredentials.googleapis.com sts.googleapis.com artifactregistry.googleapis.com`.
-  5. Create GCS state bucket idempotently (`gcloud storage buckets describe` → create on not-found, with `--uniform-bucket-level-access` and versioning enabled via `gcloud storage buckets update --versioning`).
-  6. Print IAM-grant message: roles the client admin must grant the executing principal (`roles/run.admin`, `roles/iam.serviceAccountAdmin`, `roles/storage.admin`, `roles/cloudscheduler.admin`, `roles/iam.workloadIdentityPoolAdmin`, `roles/artifactregistry.admin`).
-  7. Print next steps (clone `_example/`, populate tfvars, `terraform init`).
-- Header comment block documents purpose, inputs, prerequisites.
-- `chmod +x`.
-
-**Verify:**
 - `shellcheck scripts/bootstrap-gcp-client.sh` passes.
-- Run with no args → usage + exit non-zero.
-- Run with `--help` → usage + exit 0.
-- `verified_by: architect` — execution against a fresh GCP test project.
+- Copy `deployments/_example/` to `/tmp`, dummy-substitute placeholders, `terraform init -backend=false` reaches module download without the "repository not found" error (or fails only on the `v1.0.0` ref watchpoint above).
 
 ---
 
-### B7. Refresh `deployments/_example/`
+## Phase 2 — Documentation consistency (image namespace + package URLs)
 
-**Action:** rewrite files in place.
+Only the **GHCR image references** and **package-page URLs** change here — not project-name prose.
 
-- `main.tf` — module call with `source = "git::https://github.com/leansecurity/leansecurity-nuclei.git//infra/gcp?ref=v1.0.0"`, all variable assignments use placeholders.
-- `terraform.tfvars` — placeholder values (`project_id = "<your-project-id>"`, `client_name = "<client>"`, `scanner_image = "ghcr.io/leansecurity/leansec-nuclei:v1.0.0"`, `targets_file = "targets.txt"`).
-- `backend.tf` — GCS backend pointing at `<your-project-id>-tfstate-leansecurity-nuclei`.
-- `targets.txt` — single example line: `https://example.com`.
-- `README.md` — refresh to state: template only, copy to private storage, do not deploy from here; reference setup guide.
+### 2a. `ghcr.io/leansecurity/leansec-nuclei` → `ghcr.io/eriklacson/leansec-nuclei`
 
-**Verify:**
-- No client-identifying data anywhere.
-- Copy to `/tmp/_example_test/`, replace placeholders with dummies, run `terraform init -backend=false` then `terraform validate` — passes.
-- README explicitly states folder is a template, not a live deployment.
+| File | Lines |
+|---|---|
+| `README.md` | 19, 52, 59, 88, 136 |
+| `docs/release.md` | 23, 41, 91, 100, 171, 172 |
+| `docs/gcp_architecture.md` | 27, 38, 138, 139, 140 |
+| `docs/setup-guide.md` | 76, 264, 352 |
+| `infra/gcp/README.md` | 31, 69 |
 
----
+Note: README.md:52/59/88 are local `docker build/run -t` tags. Strictly Phase-3 cosmetic, but
+they sit in the same code blocks as the pull URLs — change them together to avoid a mixed-namespace
+README. (Their `tests/`/`CLAUDE.md` siblings remain Phase 3.)
 
-### B8. Remove `deployments/mdi/` and adjust `.gitignore`
+### 2b. Module source URL in docs
 
-**Actions:**
-1. `git rm -r deployments/mdi/`.
-2. Edit `.gitignore`: replace the `deployments/` line with:
-   ```
-   deployments/*
-   !deployments/_example/
-   ```
-   (Preserves the spirit — client folders ignored — while letting `_example/` be tracked and clearing the auto-discovery contradiction.)
+| File | Line | Change |
+|---|---|---|
+| `infra/gcp/README.md` | 65 | `github.com/leansecurity/leansecurity-nuclei.git//infra/gcp...` → `github.com/eriklacson/leansec-nuclei.git//infra/gcp...` |
 
-**Verify:**
-- `deployments/mdi/` absent.
-- `git status` shows `_example/` tracked, no other deployment folders untracked-but-now-staged.
-- `git check-ignore deployments/foo` returns hit; `git check-ignore deployments/_example` returns no hit.
+### 2c. Package-page URLs + Actions-access slug + stale `nuclei-scanner` (release.md)
 
----
+| File | Line | Current | Change to |
+|---|---|---|---|
+| `docs/release.md` | 23 | "creates `ghcr.io/leansecurity/leansec-nuclei`" | `...eriklacson/...` |
+| `docs/release.md` | 27 | `https://github.com/orgs/leansecurity/packages/container/package/nuclei-scanner` | `https://github.com/users/eriklacson/packages/container/package/leansec-nuclei` |
+| `docs/release.md` | 35 | "add `leansecurity/leansecurity-nuclei` with the Write role" | drop or → `eriklacson/leansec-nuclei` (personal-account packages auto-link to the source repo, so the manual Actions-access step is unnecessary; reword to say so) |
+| `docs/release.md` | 167 | `# https://github.com/orgs/leansecurity/packages/container/package/nuclei-scanner` | `# https://github.com/users/eriklacson/packages/container/package/leansec-nuclei` |
 
-### Workstream-B acceptance gate
-
-Before moving to documentation:
-- `poetry run black --check . && poetry run ruff check . && poetry run bandit -r . --severity-level high && poetry run pytest` passes.
-- `terraform validate` + `terraform fmt -check` in `infra/gcp/` pass.
-- `actionlint .github/workflows/*.yaml` passes.
-- `shellcheck scripts/*.sh docker/*.sh` passes.
-- Local CLI: `poetry run python scanner/scan.py _validation` produces correctly-named JSONL in `results/_validation/<YYYY-MM>/`.
-- Local Docker (`CLOUD_PROVIDER=local`) produces the same filenames.
+**Verify Phase 2:**
+- `grep -rn "ghcr.io/leansecurity\|orgs/leansecurity\|leansecurity-nuclei.git\|nuclei-scanner" README.md docs/ infra/gcp/README.md` → zero hits.
+- Manual cross-link audit: README ↔ setup-guide ↔ gcp_architecture ↔ infra/gcp/README links still resolve.
+- No mixed-namespace code block remains in README.md.
 
 ---
 
-## Workstream D — Documentation
+## Phase 3 — Cosmetic / optional (no effect on package resolution)
 
-### Pre-step: append locked decisions to seed doc
+Architect decision pending — **default is to leave these.** Listed so nothing is silently missed.
 
-Append three verbatim decisions (per `decisions_to_confirm.seed_document_locked_decisions.text`) to `.claude/docs/LeanSecurity_Nuclei_seed_document.md` under a new "Locked design decisions — gcp-cloud-deploy" section. Exact wording from project.yaml.
-
-### D1. `README.md`
-
-**Action:** edit in place.
-
-- Remove "Cloud Deployment — Next Phase" "not yet available" section (lines ~124-126); replace with a Cloud-Automated mode section.
-- Update the mode table row for Cloud: link to setup guide instead of "Next phase / not yet available."
-- Add operating-model paragraph: public repo, private deployments, architect-driven `terraform apply`.
-- Add image-distribution note: `ghcr.io/leansecurity/leansec-nuclei`, pin semver in production.
-- Cross-links: `docs/setup-guide.md`, `docs/gcp_architecture.md`, `infra/gcp/README.md`.
-- Preserve all existing Local CLI + Local Docker content unchanged.
-
-**Verify:** no "not yet available" string remains in cloud context; four cross-links resolve.
-
-### D2. `infra/gcp/README.md`
-
-**Action:** rewrite (file currently exists as scaffold; replace content).
-
-Sections in order: Purpose · Prerequisites · Required variables (table) · Optional variables (table: `enable_scheduler`, `enable_wif`, `enable_ar_mirror`, `region`, `schedule_cron`, `schedule_timezone`, `results_retention_days`, `results_delete_days`, `job_memory`, `job_cpu`, `job_timeout`, `profiles_file`) · Outputs (table) · Example usage (module-call snippet copy-pasteable into a private deployment folder) · Flag semantics (when to enable WIF, when to enable AR mirror).
-
-**Verify:** every variable in `variables.tf` has a row; every output in `outputs.tf` has a row; example main.tf parses cleanly when copied + dummy-substituted.
-
-### D3. `docs/gcp_architecture.md`
-
-**Action:** create `docs/` directory + new file. Source: `.claude/docs/gcp-cloud-deploy-brief.html`.
-
-Sections retained: Context and intent · Operating model (public repo / private deployments) · Runtime scan execution flow · Module flags · Public-repo CI/CD model · Per-client onboarding workflow · See also (cross-links).
-
-Sections omitted: §7 (known defects), §8 (scope boundary), §9 (acceptance criteria), §10 (open decisions).
-
-Diagrams: convert SVG to mermaid where structurally simple; embed inline SVG otherwise.
-
-**Verify:** renders on GitHub markdown viewer; all cross-links resolve; no open-questions or implementation-TODOs language.
-
-### Workstream-D acceptance gate
-
-All D1-D3 acceptance criteria pass; no dead links; doc text reflects the actual B-workstream output (re-check after build is merged).
+- Local build tags `leansecurity/leansec-nuclei:local` / `:test-local` → `eriklacson/...`:
+  `CLAUDE.md` 81/88/96/101, `tests/validation/README.md` 30/59/88, `tests/test_container.py:20`.
+  (Arbitrary local tags; renaming only buys cosmetic consistency. If renamed, re-run
+  `pytest tests/test_container.py` since the image tag constant changes.)
+- Project-name prose `leansecurity-nuclei` and state-bucket suffix `*-tfstate-leansecurity-nuclei`
+  (`README.md:143`, `docs/release.md:3`, `docs/gcp_architecture.md:3/7`, `docs/setup-guide.md`
+  3/20/39/47/48/93, `deployments/_example/README.md:10`, `deployments/_example/backend.tf:6`,
+  `scripts/bootstrap-gcp-client.sh` 3/15/35/44/62). Brand string, not a namespace — recommend keep.
+- `report-gcp-cloud-deploy.md` 13/52 — historical sprint report; leave as-is.
 
 ---
 
-## Workstream S — Setup Guide
+## Phase 4 — Manual GitHub steps (architect-only; cannot be done from the repo)
 
-### S1. `docs/setup-guide.md`
+1. **Confirm whether the publish job ran on the merge.** The trigger fires only on `main`/`v*`
+   pushes touching `docker/**` or `scanner/**` (`publish-image.yaml:7-13`). The `component/gcp-deploy`
+   merge was mostly `infra/**`, `docs/**`, `deployments/**`, `.github/**` — likely excluded.
+   Check **Actions → Publish Scanner Image**:
+   - *No run* → path filter skipped it; trigger via **Run workflow** (`workflow_dispatch` is wired) after Phase 1 merges.
+   - *Run exists but red* → the `denied` push from the wrong namespace (now fixed).
+2. **Trigger a publish** after the namespace fix lands: either a commit touching `docker/**` or
+   `scanner/**`, or **Run workflow**.
+3. First successful push creates `ghcr.io/eriklacson/leansec-nuclei` as a **private** package.
+4. **Make it public:** `https://github.com/users/eriklacson/packages/container/package/leansec-nuclei`
+   → Package settings → Danger Zone → Change visibility → Public.
+5. **Verify anonymously:** `docker pull ghcr.io/eriklacson/leansec-nuclei:latest` (no auth prompt).
 
-**Action:** new file under `docs/`. Eleven ordered steps, plus Ongoing Operations and Troubleshooting sections.
+---
 
-Steps: Prerequisites · 1) bootstrap GCP project (`scripts/bootstrap-gcp-client.sh`) · 2) copy `_example/` to private storage · 3) configure tfvars · 4) configure backend.tf · 5) populate targets.txt · 6) `terraform init` · 7) `terraform plan` and review · 8) `terraform apply` · 9) trigger first scan (`gcloud run jobs execute`) · 10) verify JSONL in results bucket · 11) confirm scheduler shows next run time.
+## Migration note (future `leansecurity` org)
 
-Ongoing Operations: changing targets, bumping image version, disabling scheduler.
-
-Troubleshooting (5 required failure modes): API not enabled · IAM permission denied · state bucket access denied · scanner image pull failure · Cloud Run job timeout.
-
-Constraints: every command copy-pasteable with angle-bracket placeholders; every step has an expected-output snippet; no LeanSecurity-internal references.
-
-**Verify:** renders on GitHub; no real values; cross-links to README, gcp_architecture, module README resolve; troubleshooting covers all five required modes. `verified_by: architect` — fresh-project walkthrough.
+If the org is created and the repo transferred later, the reverse rename applies, **plus**: the
+GHCR package must be transferred/recreated under the org, and consumers' `scanner_image` pins +
+module `source` refs bumped. Setting `IMAGE_NAME: ${{ github.repository }}` instead of the literal
+would make the *workflow* side automatic across that transfer — kept as an option, not chosen now.
 
 ---
 
 ## Verification matrix
 
-| Gate | Command | Workstream |
-|------|---------|-----------|
-| Python lint/test | `poetry run black --check . && poetry run ruff check . && poetry run bandit -r . --severity-level high && poetry run pytest` | B (continuous) |
-| Terraform | `terraform validate` + `terraform fmt -check` (in `infra/gcp/`) | B1, B3 |
-| Workflows | `actionlint .github/workflows/*.yaml` | B5 |
-| Bash | `shellcheck scripts/*.sh docker/*.sh` | B6 |
-| Local CLI | `poetry run python scanner/scan.py _validation` | B (regression) |
-| Local Docker | `docker build` + `docker run CLOUD_PROVIDER=local` | B2, B (regression) |
-| Markdown links | manual cross-link audit | D, S |
+| Gate | Command | Phase |
+|---|---|---|
+| Namespace residue (operative) | `grep -rn "ghcr.io/leansecurity\|leansecurity-nuclei.git" <Phase-1 files>` → 0 | 1 |
+| Terraform | `terraform fmt -check` + `terraform validate` in `infra/gcp/` | 1 |
+| Workflow | `actionlint .github/workflows/publish-image.yaml` | 1 |
+| Bash | `shellcheck scripts/bootstrap-gcp-client.sh` | 1 |
+| Example module resolves | copy `_example/` → dummy-sub → `terraform init -backend=false` | 1 |
+| Doc residue | `grep -rn "ghcr.io/leansecurity\|orgs/leansecurity\|nuclei-scanner" README.md docs/ infra/gcp/README.md` → 0 | 2 |
+| Cross-links | manual audit | 2 |
+| Python regression | `poetry run black --check . && poetry run ruff check . && poetry run pytest` | 1–3 |
 
-Architect-only gates (not run by Claude Code): B5 first GHCR push · B6 against real GCP project · S1 end-to-end walkthrough · seed-doc §9 items 4-13.
+**Architect-only gates (not runnable by Claude Code):** Phase 4 entirely — workflow run, package
+visibility flip, anonymous `docker pull`, and confirming the `v1.0.0` git tag exists for the
+module `?ref=` pin.
 
 ---
 
 ## Risks and watchpoints
 
-1. **Provider version bump from `~> 5.0` to `~> 6.0`** in `versions.tf` — required for the env-block schema fix B1 is targeting. If architect prefers staying on v5, the env-block rewrite stays valid (the multi-line block syntax works on both) but the rationale weakens. Flag in report.
-2. **`profiles_file` variable in `variables.tf`** — kept, since module still uploads profiles.yaml to the config bucket. If the open-source story is "profiles baked into image," this variable is dead weight. Out of scope per scope.md; flag in report only.
-3. **Doc-build drift** — D-workstream must run *after* B-workstream merges, so variable/output tables reflect the real `variables.tf` and `outputs.tf`. Enforce by sequencing.
-4. **`_example/.env.example` referenced in current README.md** — that file doesn't appear in the working tree (only `backend.tf`, `main.tf`, `README.md`, `targets.txt`, `terraform.tfvars`). README.md instructions for `cp deployments/_example/.env.example ...` are broken. Not in B7 scope as written, but D1's README rewrite should drop or fix that paragraph. Will be handled as part of D1.
+1. **`?ref=v1.0.0` module pin (1.4).** Fixing the repo URL is necessary but not sufficient — the
+   `v1.0.0` tag must exist on `eriklacson/leansec-nuclei`, or `terraform init` still fails. Confirm.
+2. **Path-filter publish trigger.** Even after the namespace fix, the package won't appear until a
+   `docker/**`/`scanner/**` change or a manual `workflow_dispatch` run (Phase 4 step 2).
+3. **Mixed-namespace README.** README pull URLs (2a) and local build tags (Phase 3) live in the
+   same fenced blocks — split across phases they'd leave one block half-renamed. Phase 2a pulls the
+   in-README local tags forward to keep each block internally consistent.
+4. **Reverting a fresh commit.** This undoes `ab0d275`; if a `leansecurity` org is genuinely
+   planned soon, the architect may instead prefer the "make it real" path — confirmed not chosen.
 
 ---
 
 ## Deliverable checklist
 
-**Build (8):** B1 env fix · B2 profile-alignment verification · B3 module rewrite + new variables + versions.tf · B4 delete deploy.yml · B5 publish-image.yaml + delete scanner-image.yml · B6 bootstrap-gcp-client.sh · B7 refresh _example/ · B8 remove mdi/ + fix .gitignore.
-
-**Documentation (3 + seed-doc edit):** seed doc locked-decisions append · D1 README.md cloud section · D2 infra/gcp/README.md module reference · D3 docs/gcp_architecture.md.
-
-**Setup guide (1):** S1 docs/setup-guide.md.
-
-**Report:** `report-gcp-cloud-deploy.md` summarizing verification results, flagged risks, architect-verified items still outstanding.
+- **Phase 1 (6 edits):** workflow IMAGE_NAME · variables.tf default · terraform.tfvars · main.tf source · main.tf default · bootstrap script.
+- **Phase 2 (4 groups):** GHCR pull URLs across 5 files · module source in infra README · 4 package-URL/slug fixes in release.md · in-README local tags.
+- **Phase 3 (optional):** local build tags · project-name/bucket prose — default leave.
+- **Phase 4 (architect):** confirm/trigger workflow · publish · make public · verify anonymous pull.
+- **Report:** `report-ghcr-namespace-fix.md` — verification results, the `v1.0.0` tag watchpoint, and the Phase-4 items still outstanding.
