@@ -178,10 +178,10 @@ docker run --rm ghcr.io/eriklacson/leansec-nuclei:v1.2.3 nuclei -version
 
 ## Announcing a release
 
-The `_example/main.tf` source ref (`?ref=v1.0.0`) and any consumer-side `terraform.tfvars` are pinned to specific tags. When you publish a new semver:
+The `infra/gcp/_example/main.tf` uses a relative module source (`../../infra/gcp`), so it always reflects the current checkout — no ref to bump. Consumer-side `terraform.tfvars` pin the scanner image tag. When you publish a new semver:
 
-1. Decide whether to bump `_example/main.tf`'s `?ref=` to the new tag. Bump on major/minor; usually leave on patch unless the patch fixes a known consumer issue.
-2. Communicate the new tag and changelog out-of-band to known consumers. There is no auto-notification mechanism — clients pull when they explicitly bump their pin.
+1. Communicate the new tag and changelog out-of-band to known consumers. There is no auto-notification mechanism — clients bump their `scanner_image` tag in `terraform.tfvars` when ready.
+2. Update the default `scanner_image` in `infra/gcp/variables.tf` and in `.claude/skills/gcp-deploy/SKILL.md` (`DEFAULT_SCANNER_IMAGE`) to the new semver.
 
 ---
 

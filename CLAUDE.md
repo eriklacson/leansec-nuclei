@@ -53,7 +53,10 @@ Source of truth for all scan configuration. Seven CSFLite-aligned profiles:
 
 ### Client Deployments (`deployments/`)
 
-Each subdirectory (except `_example/`) is an active client. CI auto-discovers these — adding a new folder to `deployments/` automatically triggers Terraform plan/apply in CI. Copy `deployments/_example/` as the template for new clients.
+Each subdirectory is an active client deployment (local CLI, local Docker, GCP, or other cloud). All of `deployments/` is gitignored — no client data is committed. Use the appropriate template for the deployment mode:
+- Local CLI: copy `scanner/_example/`
+- Local Docker: copy `docker/_example/`
+- GCP: copy `infra/gcp/_example/`
 
 ### Infrastructure (`infra/`)
 

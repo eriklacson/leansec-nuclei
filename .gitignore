@@ -8,11 +8,9 @@
 # Scan results (local mode)
 results/
 
-# Client deployments are private. Only the example and validation
-# templates are tracked; everything else under deployments/ is ignored.
-deployments/*
-!deployments/_example/
-!deployments/_validation/
+# Client deployments are private — all of deployments/ is gitignored.
+# The example template lives in infra/gcp/_example/ instead.
+deployments/
 
 # OS
 .DS_Store
