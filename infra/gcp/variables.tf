@@ -74,7 +74,7 @@ variable "job_cpu" {
 variable "job_timeout" {
   description = "Cloud Run task timeout"
   type        = string
-  default     = "3600s"
+  default     = "7200s"
 }
 
 # ─── Feature flags ───

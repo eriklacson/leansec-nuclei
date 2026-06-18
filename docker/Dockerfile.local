@@ -22,8 +22,13 @@ os.chmod("/usr/local/bin/nuclei", 0o755)
 os.remove("/tmp/nuclei.zip")
 EOF
 
-# Runtime python deps: pyyaml only. No Poetry, no cloud SDKs.
-RUN pip install --no-cache-dir pyyaml==6.0.2
+# Bake Nuclei templates into the image so UPDATE_TEMPLATES=false works in tests
+# and air-gapped environments without a runtime network call.
+RUN nuclei -update-templates -silent
+
+# Runtime python deps: pyyaml for scan profiles; google-cloud-storage for GCS
+# config download and results upload in cloud mode (replaces gcloud CLI).
+RUN pip install --no-cache-dir pyyaml==6.0.2 google-cloud-storage
 
 WORKDIR /app
 

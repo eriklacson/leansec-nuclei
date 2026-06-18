@@ -42,9 +42,17 @@ download_config() {
       :
       ;;
     gcp)
+      # Strip gs:// prefix, download the targets blob to the local deployment dir.
       mkdir -p "/app/deployments/${CLIENT}"
-      gcloud storage cp "${CONFIG_BUCKET}/${TARGETS_PATH}" \
-        "/app/deployments/${CLIENT}/targets.txt"
+      python3 - <<'PYEOF'
+import os, re
+from google.cloud import storage
+bucket_name = re.sub(r'^gs://', '', os.environ["CONFIG_BUCKET"])
+gcs = storage.Client()
+gcs.bucket(bucket_name).blob(os.environ.get("TARGETS_PATH", "targets/targets.txt")) \
+    .download_to_filename(f"/app/deployments/{os.environ['CLIENT']}/targets.txt")
+print(f"Downloaded targets from gs://{bucket_name}/{os.environ.get('TARGETS_PATH', 'targets/targets.txt')}")
+PYEOF
       ;;
     aws)
       mkdir -p "/app/deployments/${CLIENT}"
@@ -70,7 +78,23 @@ upload_results() {
       :
       ;;
     gcp)
-      gcloud storage cp -r "${results_dir}"/* "${RESULTS_BUCKET}/${CLIENT}/"
+      # Parse gs://bucket/prefix, walk all result files, upload preserving relative path.
+      python3 - <<'PYEOF'
+import os, re, pathlib
+from google.cloud import storage
+m = re.match(r'^gs://([^/]+)(?:/(.+))?$', os.environ["RESULTS_BUCKET"])
+bucket_name, prefix = m.group(1), (m.group(2) or "")
+client_name = os.environ["CLIENT"]
+gcs = storage.Client()
+bucket = gcs.bucket(bucket_name)
+results_dir = pathlib.Path(f"/app/results/{client_name}")
+for f in sorted(results_dir.rglob("*")):
+    if f.is_file():
+        rel = f.relative_to(results_dir)
+        dest = f"{prefix}/{client_name}/{rel}".lstrip("/")
+        bucket.blob(dest).upload_from_filename(str(f))
+        print(f"Uploaded {f.name} -> gs://{bucket_name}/{dest}")
+PYEOF
       ;;
     aws)
       aws s3 cp "${results_dir}/" "s3://${RESULTS_BUCKET}/${CLIENT}/" \
