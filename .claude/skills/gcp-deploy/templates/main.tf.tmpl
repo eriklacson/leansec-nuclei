@@ -23,6 +23,8 @@ module "nuclei" {
   enable_ar_mirror = var.enable_ar_mirror
 
   wif_github_repository = var.wif_github_repository
+
+  job_timeout = var.job_timeout
 }
 
 # ─── Passthrough variable declarations ───
@@ -71,4 +73,9 @@ variable "enable_ar_mirror" {
 variable "wif_github_repository" {
   type    = string
   default = ""
+}
+
+variable "job_timeout" {
+  type    = string
+  default = "7200s"
 }
