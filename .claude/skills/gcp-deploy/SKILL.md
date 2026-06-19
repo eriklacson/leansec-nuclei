@@ -73,8 +73,44 @@ Before step 1, confirm:
 
 Check whether `deployment.yaml` exists in the current working directory.
 
-- **Success:** `deployment.yaml` found → proceed to step 3.
-- **Failure (file missing):** Offer to scaffold (step 2). Do not proceed to step 3 until `deployment.yaml` exists and the operator has populated it.
+- **Success:** `deployment.yaml` found → proceed to step 1b.
+- **Failure (file missing):** Offer to scaffold (step 2). Do not proceed to step 1b until `deployment.yaml` exists and the operator has populated it.
+
+---
+
+### Step 1b — Confirm profiles.yaml placement
+
+Check whether `profiles.yaml` exists in the current deployment folder:
+
+```bash
+ls profiles.yaml 2>/dev/null && echo "found" || echo "not found"
+```
+
+**If `profiles.yaml` is present:**
+
+Confirm to the operator:
+
+> "`profiles.yaml` found in this deployment folder — the scanner will use these client-specific profiles for this deployment."
+
+Proceed to step 3.
+
+**If `profiles.yaml` is absent:**
+
+Inform the operator:
+
+> "No `profiles.yaml` found in this deployment folder. The scanner will fall back to the global default at `scanner/profiles/profiles.yaml` (all 7 profiles, default rate limits).
+>
+> To customize scan profiles for this client, copy the template:
+> ```bash
+> cp "$REPO_ROOT/scanner/_example/profiles.yaml" ./profiles.yaml
+> ```
+> Then edit `profiles.yaml` to select the profiles and settings you want.
+>
+> **Proceed with the global default, or customize profiles first?**"
+
+- **Operator confirms proceed with global default** → proceed to step 3.
+- **Operator wants to customize** → stop here. Ask them to copy and edit the template, then re-invoke the skill.
+- **Do not proceed to step 3 until the operator has made an explicit choice.**
 
 ---
 

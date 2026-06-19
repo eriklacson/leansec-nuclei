@@ -19,7 +19,11 @@ the repo checkout to set up a local CLI scan.
 
 2. **Populate `targets.txt`** with real external URLs (one per line).
 
-3. **Run the scan** from the repo root:
+3. **(Optional) Customize `profiles.yaml`** — the scanner looks for `deployments/<client>/profiles.yaml`
+   first and falls back to `scanner/profiles/profiles.yaml` when absent. Edit the copy in your
+   deployment folder to add, remove, or tune profiles for this client without affecting others.
+
+4. **Run the scan** from the repo root:
    ```bash
    ./scanner/scan.py <your-client>
    ```

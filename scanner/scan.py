@@ -27,7 +27,15 @@ from nuclei_json_converter import (  # noqa: E402
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PROFILES_PATH = Path(__file__).resolve().parent / "profiles" / "profiles.yaml"
+_GLOBAL_PROFILES = Path(__file__).resolve().parent / "profiles" / "profiles.yaml"
+
+
+def _resolve_profiles_path(client: str) -> Path:
+    # Per-client profiles.yaml wins when present; global copy is the fallback.
+    client_profiles = REPO_ROOT / "deployments" / client / "profiles.yaml"
+    if client_profiles.exists():
+        return client_profiles
+    return _GLOBAL_PROFILES
 
 
 def main() -> None:
@@ -58,7 +66,8 @@ def main() -> None:
     print("Updating Nuclei templates...")
     subprocess.run(["nuclei", "-update-templates", "-silent"], check=False)  # noqa: S603,S607
 
-    profiles = load_profiles(str(PROFILES_PATH)).get("profiles", {})
+    profiles_path = _resolve_profiles_path(client)
+    profiles = load_profiles(str(profiles_path)).get("profiles", {})
     total = len(profiles)
 
     print(f"Starting scan for {client}...\n")

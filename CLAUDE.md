@@ -10,10 +10,8 @@ External vulnerability scanning pipeline using open-source Nuclei against public
 - CSFLite is a 25-control governance framework derived from NIST CSF v2.0
 - It measures coverage (does this exist?), not maturity or risk
 - All outputs must trace to CSFLite controls in `csflite/controls.json`
-- Read `csflite/scoring.md` for scoring methodology
 - Read `claude-project/LeanSecurity_Nuclei_Seed_Document.md` for project scope and acceptance criteria
 - If `decisions/` directory exists, read it for architecture decisions before planning any work
-
 
 ## Execution Loop
 All tasks follow this loop — no exceptions:
@@ -125,8 +123,4 @@ Cloud vendor workflows live under `infra/<vendor>/workflows/` and must be manual
 - Data: JSON for machine-readable, YAML for human-editable
 
 ## Hard Prohibitions
-- No maturity scoring — coverage only
-- No compliance certification claims — CSFLite is not a compliance framework
-- No tool accumulation — governance clarity over tool sprawl
-- No speculative scope expansion — build what the spec says
-- Never push to remote — architect controls what leaves the repo
+- Never push to remote - architect controls what leaves the repo
