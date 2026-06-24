@@ -30,40 +30,53 @@ if [ "${CLOUD_PROVIDER}" = "local" ]; then
   fi
 fi
 
-TARGETS_PATH="${TARGETS_PATH:-targets/targets.txt}"
-
 # ─── cloud I/O dispatch ───
-# download_config: fetch only targets.txt. profiles.yaml is baked into the image
-# (PROFILES_PATH env var was removed; runtime download is dead weight).
+# download_config: fetch targets.txt and profiles.yaml from the config bucket.
+# profiles.yaml is downloaded to deployments/<client>/profiles.yaml so scan.py's
+# per-client override path in _resolve_profiles_path() picks it up automatically.
 download_config() {
+  TARGETS_PATH="${TARGETS_PATH:-targets/targets.txt}"
+  PROFILES_PATH="${PROFILES_PATH:-profiles/profiles.yaml}"
+
   case "${CLOUD_PROVIDER}" in
     local)
       # Volume mount at /app/deployments provides targets.txt; nothing to do.
       :
       ;;
     gcp)
-      # Strip gs:// prefix, download the targets blob to the local deployment dir.
+      # Strip gs:// prefix, download targets and profiles to the local deployment dir.
       mkdir -p "/app/deployments/${CLIENT}"
       python3 - <<'PYEOF'
 import os, re
 from google.cloud import storage
 bucket_name = re.sub(r'^gs://', '', os.environ["CONFIG_BUCKET"])
 gcs = storage.Client()
-gcs.bucket(bucket_name).blob(os.environ.get("TARGETS_PATH", "targets/targets.txt")) \
-    .download_to_filename(f"/app/deployments/{os.environ['CLIENT']}/targets.txt")
-print(f"Downloaded targets from gs://{bucket_name}/{os.environ.get('TARGETS_PATH', 'targets/targets.txt')}")
+bucket = gcs.bucket(bucket_name)
+
+targets_path = os.environ.get("TARGETS_PATH", "targets/targets.txt")
+bucket.blob(targets_path).download_to_filename(f"/app/deployments/{os.environ['CLIENT']}/targets.txt")
+print(f"Downloaded targets from gs://{bucket_name}/{targets_path}")
+
+profiles_path = os.environ.get("PROFILES_PATH", "profiles/profiles.yaml")
+bucket.blob(profiles_path).download_to_filename(f"/app/deployments/{os.environ['CLIENT']}/profiles.yaml")
+print(f"Downloaded profiles from gs://{bucket_name}/{profiles_path}")
 PYEOF
       ;;
     aws)
       mkdir -p "/app/deployments/${CLIENT}"
       aws s3 cp "s3://${CONFIG_BUCKET}/${TARGETS_PATH}" \
         "/app/deployments/${CLIENT}/targets.txt"
+      aws s3 cp "s3://${CONFIG_BUCKET}/${PROFILES_PATH}" \
+        "/app/deployments/${CLIENT}/profiles.yaml"
       ;;
     azure)
       mkdir -p "/app/deployments/${CLIENT}"
       az storage blob download --container "${CONFIG_BUCKET}" \
         --name "${TARGETS_PATH}" \
         --file "/app/deployments/${CLIENT}/targets.txt"
+      az storage blob download --container "${CONFIG_BUCKET}" \
+        --name "${PROFILES_PATH}" \
+        --file "/app/deployments/${CLIENT}/profiles.yaml"
       ;;
   esac
 }

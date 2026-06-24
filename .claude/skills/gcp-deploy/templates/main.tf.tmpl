@@ -10,9 +10,8 @@ module "nuclei" {
   scanner_image = var.scanner_image
   targets_file  = var.targets_file
 
-  # profiles_file uses path.module so it resolves from deployments/<client>/
-  # back up to scanner/profiles/profiles.yaml at the repo root.
-  profiles_file = "${path.module}/../../scanner/profiles/profiles.yaml"
+  # Per-client profiles.yaml — Step 1b of the skill ensures this file exists.
+  profiles_file = "${path.module}/profiles.yaml"
 
   region            = var.region
   schedule_cron     = var.schedule_cron

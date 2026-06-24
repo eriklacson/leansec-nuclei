@@ -1,3 +1,19 @@
+# Per-client scan profiles for this GCP deployment.
+# Copied from scanner/profiles/profiles.yaml at template creation time.
+# Edit this file to customize which profiles run and at what rate for this client.
+# Changes take effect on the next `terraform apply` (uploaded to the config bucket).
+#
+# Fields per profile:
+#   tags        — Nuclei template tags to match
+#   severity    — findings severity filter
+#   csf_subcategory — CSFLite controls this profile satisfies
+#   rate_limit  — requests per second
+#   concurrency — parallel template threads
+#   retries     — per-request retry count
+#   timeout     — per-request timeout in seconds
+#   input_mode  — "list" (URL list) or "cidr"
+#   output      — JSONL output filename for this profile
+
 version: 1
 profiles:
   baseline_web:

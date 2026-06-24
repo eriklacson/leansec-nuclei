@@ -11,7 +11,7 @@ module "nuclei" {
   client_name   = var.client_name
   scanner_image = var.scanner_image
   targets_file  = "${path.module}/targets.txt"
-  profiles_file = "${path.module}/../../scanner/profiles/profiles.yaml"
+  profiles_file = "${path.module}/profiles.yaml"
 
   # Feature flags — uncomment to override defaults.
   # enable_scheduler      = true
