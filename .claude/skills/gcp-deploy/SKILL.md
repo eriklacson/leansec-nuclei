@@ -337,6 +337,27 @@ terraform apply tfplan
 
 ---
 
+### Step 10b — Sync config files to GCS
+
+After a successful apply, explicitly upload the current `targets.txt` and `profiles.yaml` to the config bucket. This guarantees the container always reads the latest version of both files, independent of Terraform's hash-based change detection.
+
+```bash
+CLIENT_NAME="<value from deployment.yaml deployment.client_name>"
+PROJECT_ID="<value from deployment.yaml deployment.gcp_project_id>"
+BUCKET="${CLIENT_NAME}-nuclei-config"
+
+gcloud storage cp ./targets.txt  "gs://${BUCKET}/targets/targets.txt"  --project="${PROJECT_ID}"
+gcloud storage cp ./profiles.yaml "gs://${BUCKET}/profiles/profiles.yaml" --project="${PROJECT_ID}"
+echo "Config files synced to gs://${BUCKET}/"
+```
+
+Run this step unconditionally — even when the Terraform plan was a no-op. This ensures that any edits to `targets.txt` or `profiles.yaml` since the last deploy are always reflected in GCS after every skill invocation.
+
+- **Success:** Both files uploaded; gcloud prints the destination URI for each.
+- **Failure:** Bucket not found — `terraform apply` may have failed or partially applied; check step 10 output. Authentication error — re-run `gcloud auth login`.
+
+---
+
 ### Step 11 — Report results and next steps
 
 Present a completion summary:
@@ -378,6 +399,7 @@ Present a completion summary:
 | `terraform init` failure | Step 6 | Diagnose: bucket missing (re-run bootstrap), module path wrong (check CWD), auth error |
 | `terraform plan` failure | Step 7 | Surface full error; check IAM grants from bootstrap output and API enablement |
 | `terraform apply` failure | Step 10 | Surface full error; warn about partial state; advise `terraform show` before retry |
+| GCS sync failure | Step 10b | Bucket not found → check step 10 succeeded; auth error → `gcloud auth login` |
 
 ---
 
@@ -386,6 +408,7 @@ Present a completion summary:
 Re-running the skill against the same `deployment.yaml`:
 - Steps 3–5 always re-validate and re-render; generated files are overwritten, not appended.
 - `terraform apply` on an unchanged YAML produces a zero-change plan.
+- Step 10b always uploads `targets.txt` and `profiles.yaml` to GCS regardless of whether the plan had changes.
 - The operator must still confirm in step 9, even for a zero-change plan.
 
 ---
@@ -399,5 +422,5 @@ This skill does not:
 - Modify the `infra/gcp/` Terraform module
 - Deploy to AWS or Azure
 - Provide a CLI program with argument parsing and exit codes
-- Back up or sync `deployment.yaml` or `targets.txt`
+- Back up or version-control `deployment.yaml`, `targets.txt`, or `profiles.yaml` (operator's responsibility)
 - Provision the GCP project itself (assumes the project exists with appropriate IAM)
