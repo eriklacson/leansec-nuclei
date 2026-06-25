@@ -6,6 +6,7 @@
 project_id    = "{{gcp_project_id}}"
 client_name   = "{{client_name}}"
 targets_file  = "{{targets_file}}"
+profiles_file = "{{profiles_file}}"
 
 # ─── Scanner image ───
 scanner_image = "{{scanner_image}}"
@@ -25,8 +26,6 @@ enable_ar_mirror = {{enable_ar_mirror}}
 # ─── WIF (only used when enable_wif = true) ───
 wif_github_repository = "{{wif_github_repository}}"
 
-# ─── Profiles file — path relative to deployment folder ───
-# profiles_file = "../../scanner/profiles/profiles.yaml"
 
 # ─── Resource sizing — defaults from module; uncomment to override ───
 # results_retention_days = 365

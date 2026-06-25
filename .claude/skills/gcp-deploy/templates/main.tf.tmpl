@@ -9,9 +9,7 @@ module "nuclei" {
   client_name   = var.client_name
   scanner_image = var.scanner_image
   targets_file  = var.targets_file
-
-  # Per-client profiles.yaml — Step 1b of the skill ensures this file exists.
-  profiles_file = "${path.module}/profiles.yaml"
+  profiles_file = var.profiles_file
 
   region            = var.region
   schedule_cron     = var.schedule_cron
@@ -32,7 +30,8 @@ module "nuclei" {
 
 variable "project_id"   { type = string }
 variable "client_name"  { type = string }
-variable "targets_file" { type = string }
+variable "targets_file"   { type = string }
+variable "profiles_file"  { type = string }
 
 variable "scanner_image" {
   type    = string

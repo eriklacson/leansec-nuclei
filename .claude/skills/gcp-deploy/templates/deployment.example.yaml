@@ -62,3 +62,15 @@ targets:
   # optional — path to the targets file, relative to this deployment.yaml
   # default: ./targets.txt
   file: ./targets.txt
+
+profiles:
+  # optional — path to the scan profiles file, relative to this deployment.yaml
+  # default: ./profiles.yaml
+  #
+  # profiles.yaml controls which Nuclei scan profiles run for this client and at
+  # what rate. Edit it to add, remove, or tune profiles, then re-run `terraform apply`
+  # to push the updated file to GCS — the next Cloud Run execution picks it up.
+  #
+  # To start from the canonical template:
+  #   cp "$REPO_ROOT/scanner/_example/profiles.yaml" ./profiles.yaml
+  file: ./profiles.yaml

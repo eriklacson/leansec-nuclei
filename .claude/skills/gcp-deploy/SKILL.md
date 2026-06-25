@@ -98,17 +98,21 @@ Proceed to step 3.
 
 Inform the operator:
 
-> "No `profiles.yaml` found in this deployment folder. The scanner will fall back to the global default at `scanner/profiles/profiles.yaml` (all 7 profiles, default rate limits).
+> "No `profiles.yaml` found in this deployment folder.
 >
-> To customize scan profiles for this client, copy the template:
+> To customize scan profiles for this client, copy the template and edit it before continuing:
 > ```bash
 > cp "$REPO_ROOT/scanner/_example/profiles.yaml" ./profiles.yaml
 > ```
-> Then edit `profiles.yaml` to select the profiles and settings you want.
 >
-> **Proceed with the global default, or customize profiles first?**"
+> **Proceed with the global default (all profiles, default rate limits), or customize profiles first?**"
 
-- **Operator confirms proceed with global default** → proceed to step 3.
+- **Operator confirms proceed with global default** → copy the global default into the deployment folder, then proceed to step 3:
+  ```bash
+  REPO_ROOT="$(git rev-parse --show-toplevel)"
+  cp "$REPO_ROOT/scanner/_example/profiles.yaml" ./profiles.yaml
+  echo "Copied global default profiles.yaml — you can edit it before the next terraform apply."
+  ```
 - **Operator wants to customize** → stop here. Ask them to copy and edit the template, then re-invoke the skill.
 - **Do not proceed to step 3 until the operator has made an explicit choice.**
 
@@ -204,6 +208,7 @@ Read all values from `deployment.yaml`. Apply defaults for any optional fields:
 | `schedule.cron` | `0 2 1-7 * 0` |
 | `schedule.timezone` | `Etc/UTC` |
 | `targets.file` | `./targets.txt` |
+| `profiles.file` | `./profiles.yaml` |
 | `wif_github_repository` | `""` (empty — harmless when enable_wif is false) |
 
 Use the templates in `$REPO_ROOT/.claude/skills/gcp-deploy/templates/`. Substitute every `{{placeholder}}` with the resolved value. Write the rendered files into the current deployment folder, overwriting any existing versions.
@@ -214,8 +219,10 @@ Use Python for substitution (preferred):
 import re, yaml, pathlib
 
 deployment_yaml = yaml.safe_load(pathlib.Path("deployment.yaml").read_text())
-# ... extract fields with defaults ...
-# for each template: read, substitute, write
+# Extract fields with defaults:
+#   targets_file  = deployment_yaml.get("targets",  {}).get("file",  "./targets.txt")
+#   profiles_file = deployment_yaml.get("profiles", {}).get("file",  "./profiles.yaml")
+# for each template: read, substitute {{placeholder}}, write
 ```
 
 If Python is unavailable, use `sed -e 's/{{placeholder}}/value/g'` for each placeholder.

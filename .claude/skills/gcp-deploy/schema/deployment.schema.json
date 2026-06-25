@@ -90,6 +90,17 @@
           "description": "Path to the targets file, relative to deployment.yaml. Default: ./targets.txt."
         }
       }
+    },
+    "profiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string",
+          "default": "./profiles.yaml",
+          "description": "Path to the scan profiles file, relative to deployment.yaml. Default: ./profiles.yaml."
+        }
+      }
     }
   }
 }
