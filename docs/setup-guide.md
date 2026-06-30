@@ -6,6 +6,53 @@ Architecture context: [`gcp_architecture.md`](gcp_architecture.md). Module refer
 
 ---
 
+## Quick start: using the gcp-deploy skill (recommended)
+
+The `/gcp-deploy` Claude Code skill handles the full deployment workflow for you. If you
+have Claude Code running, this is the fastest path.
+
+**Prerequisites:** gcloud CLI (authenticated), Terraform, Python 3, and a GCP project that exists with billing enabled.
+
+**Steps:**
+
+1. Clone the repo and create your deployment folder inside it:
+   ```bash
+   git clone https://github.com/eriklacson/leansec-nuclei.git
+   cd leansec-nuclei
+   mkdir -p deployments/<your-client>
+   cd deployments/<your-client>
+   ```
+
+2. Add your targets to `targets.txt` (one URL per line):
+   ```bash
+   echo "https://www.example.com" > targets.txt
+   ```
+
+3. Open a Claude Code session in this folder and invoke the skill:
+   - Say **"deploy this to GCP"** or **"set up the scanner on GCP"**
+   - Or run the `/gcp-deploy` slash command
+
+4. The skill will:
+   - Scaffold `deployment.yaml` from the template if it doesn't exist
+   - Prompt you to fill in `deployment.client_name` and `deployment.gcp_project_id`
+   - Validate your configuration before touching GCP
+   - Run the bootstrap script, render Terraform files, and show you the plan
+   - Apply only after you confirm
+
+5. After apply, the skill prints the deployed resource names and instructions for triggering the first scan manually.
+
+See [`.claude/skills/gcp-deploy/README.md`](../.claude/skills/gcp-deploy/README.md) for the full skill reference.
+
+> **Note:** The deployment folder lives inside the public repo checkout but is gitignored — no client-identifying files will be committed.
+
+---
+
+## Manual setup (alternative)
+
+The manual path is equivalent in outcome and remains fully supported. Use it when Claude Code is unavailable, in restricted environments, or when you prefer direct Terraform control.
+
+---
+
 ## Prerequisites
 
 You need:
@@ -55,14 +102,14 @@ If you re-run the script, the bucket-create step will say `bucket already exists
 
 ---
 
-## Step 2 — Copy the example folder to your private storage
+## Step 2 — Copy the example folder to your deployment folder
 
 ```bash
-cp -r deployments/_example/ /path/to/private/<your-client-name>/
-cd /path/to/private/<your-client-name>/
+cp -r infra/gcp/_example/ deployments/<your-client-name>/
+cd deployments/<your-client-name>/
 ```
 
-From this point forward, all commands run from inside the private copy, not from the public repo.
+The `deployments/` directory is gitignored — no client data will be committed to the public repo. All subsequent commands run from inside your deployment folder.
 
 ---
 

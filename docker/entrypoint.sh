@@ -30,32 +30,53 @@ if [ "${CLOUD_PROVIDER}" = "local" ]; then
   fi
 fi
 
-TARGETS_PATH="${TARGETS_PATH:-targets/targets.txt}"
-
 # ─── cloud I/O dispatch ───
-# download_config: fetch only targets.txt. profiles.yaml is baked into the image
-# (PROFILES_PATH env var was removed; runtime download is dead weight).
+# download_config: fetch targets.txt and profiles.yaml from the config bucket.
+# profiles.yaml is downloaded to deployments/<client>/profiles.yaml so scan.py's
+# per-client override path in _resolve_profiles_path() picks it up automatically.
 download_config() {
+  TARGETS_PATH="${TARGETS_PATH:-targets/targets.txt}"
+  PROFILES_PATH="${PROFILES_PATH:-profiles/profiles.yaml}"
+
   case "${CLOUD_PROVIDER}" in
     local)
       # Volume mount at /app/deployments provides targets.txt; nothing to do.
       :
       ;;
     gcp)
+      # Strip gs:// prefix, download targets and profiles to the local deployment dir.
       mkdir -p "/app/deployments/${CLIENT}"
-      gcloud storage cp "${CONFIG_BUCKET}/${TARGETS_PATH}" \
-        "/app/deployments/${CLIENT}/targets.txt"
+      python3 - <<'PYEOF'
+import os, re
+from google.cloud import storage
+bucket_name = re.sub(r'^gs://', '', os.environ["CONFIG_BUCKET"])
+gcs = storage.Client()
+bucket = gcs.bucket(bucket_name)
+
+targets_path = os.environ.get("TARGETS_PATH", "targets/targets.txt")
+bucket.blob(targets_path).download_to_filename(f"/app/deployments/{os.environ['CLIENT']}/targets.txt")
+print(f"Downloaded targets from gs://{bucket_name}/{targets_path}")
+
+profiles_path = os.environ.get("PROFILES_PATH", "profiles/profiles.yaml")
+bucket.blob(profiles_path).download_to_filename(f"/app/deployments/{os.environ['CLIENT']}/profiles.yaml")
+print(f"Downloaded profiles from gs://{bucket_name}/{profiles_path}")
+PYEOF
       ;;
     aws)
       mkdir -p "/app/deployments/${CLIENT}"
       aws s3 cp "s3://${CONFIG_BUCKET}/${TARGETS_PATH}" \
         "/app/deployments/${CLIENT}/targets.txt"
+      aws s3 cp "s3://${CONFIG_BUCKET}/${PROFILES_PATH}" \
+        "/app/deployments/${CLIENT}/profiles.yaml"
       ;;
     azure)
       mkdir -p "/app/deployments/${CLIENT}"
       az storage blob download --container "${CONFIG_BUCKET}" \
         --name "${TARGETS_PATH}" \
         --file "/app/deployments/${CLIENT}/targets.txt"
+      az storage blob download --container "${CONFIG_BUCKET}" \
+        --name "${PROFILES_PATH}" \
+        --file "/app/deployments/${CLIENT}/profiles.yaml"
       ;;
   esac
 }
@@ -70,7 +91,23 @@ upload_results() {
       :
       ;;
     gcp)
-      gcloud storage cp -r "${results_dir}"/* "${RESULTS_BUCKET}/${CLIENT}/"
+      # Parse gs://bucket/prefix, walk all result files, upload preserving relative path.
+      python3 - <<'PYEOF'
+import os, re, pathlib
+from google.cloud import storage
+m = re.match(r'^gs://([^/]+)(?:/(.+))?$', os.environ["RESULTS_BUCKET"])
+bucket_name, prefix = m.group(1), (m.group(2) or "")
+client_name = os.environ["CLIENT"]
+gcs = storage.Client()
+bucket = gcs.bucket(bucket_name)
+results_dir = pathlib.Path(f"/app/results/{client_name}")
+for f in sorted(results_dir.rglob("*")):
+    if f.is_file():
+        rel = f.relative_to(results_dir)
+        dest = f"{prefix}/{client_name}/{rel}".lstrip("/")
+        bucket.blob(dest).upload_from_filename(str(f))
+        print(f"Uploaded {f.name} -> gs://{bucket_name}/{dest}")
+PYEOF
       ;;
     aws)
       aws s3 cp "${results_dir}/" "s3://${RESULTS_BUCKET}/${CLIENT}/" \

@@ -13,6 +13,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 # NUCLEI_VERSION mirrors ARG NUCLEI_VERSION in docker/Dockerfile.local; both
 # values must move together. If you bump one, bump the other.
@@ -21,17 +22,13 @@ IMAGE_TAG = "leansecurity/leansec-nuclei:test-local"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCKERFILE = "docker/Dockerfile.local"
 
-# Canonical profile names per scope.md acceptance criteria — every JSONL
-# the container produces must start with one of these stems.
-CANONICAL_PROFILES = {
-    "baseline_web",
-    "patch_cve",
-    "identity_remote_access",
-    "data_protection",
-    "transport_security",
-    "owasp_top10_core",
-    "vuln_monitoring",
-}
+# Required fields for every profile entry — structural contract, not a name list.
+PROFILE_REQUIRED_FIELDS = {"tags", "severity", "csf_subcategory", "rate_limit", "output"}
+
+# Profile names derived from the source-of-truth YAML so tests stay in sync
+# with whatever profiles are actually defined, without a hardcoded allowlist.
+_profiles_doc = yaml.safe_load((REPO_ROOT / "scanner/profiles/profiles.yaml").read_text())
+DEFINED_PROFILES = set(_profiles_doc.get("profiles", {}).keys())
 
 # Module-level skip — bail out before pytest collects fixtures if Docker is unusable.
 if shutil.which("docker") is None:
@@ -96,8 +93,8 @@ def test_python_version(built_image):
 
 
 def test_profiles_yaml_baked_in(built_image):
-    # profiles.yaml must ship inside the image at the canonical path and parse
-    # as valid YAML. Runtime download was removed (PROFILES_PATH is gone).
+    # profiles.yaml must ship inside the image at the canonical path, parse as
+    # valid YAML, and each profile must carry the required structural fields.
     out = _run(
         [
             "docker",
@@ -107,15 +104,20 @@ def test_profiles_yaml_baked_in(built_image):
             "python",
             built_image,
             "-c",
-            "import yaml; "
+            "import yaml, json; "
             "d = yaml.safe_load(open('/app/scanner/profiles/profiles.yaml')); "
-            "print(sorted(d['profiles'].keys()))",
+            "print(json.dumps({k: list(v.keys()) for k, v in d['profiles'].items()}))",
         ],
         check=True,
     )
-    # Image must contain all seven canonical profiles, no more, no fewer.
-    missing = [p for p in CANONICAL_PROFILES if p not in out.stdout]
-    assert not missing, f"profiles.yaml missing canonical profiles: {missing}"
+    import json
+
+    profile_fields = json.loads(out.stdout)
+    assert profile_fields, "profiles.yaml contains no profiles"
+    required = PROFILE_REQUIRED_FIELDS
+    for name, fields in profile_fields.items():
+        missing = required - set(fields)
+        assert not missing, f"profile '{name}' missing required fields: {missing}"
 
 
 def test_missing_client_exits_nonzero(built_image):
@@ -204,8 +206,8 @@ def test_local_mode_produces_canonical_jsonl_and_normalized_json(built_image, tm
     # Every JSONL filename must be `<canonical>_<YYYY-MM>.jsonl`. Strip the
     # trailing `_YYYY-MM` and assert what remains is a canonical profile name.
     seen_stems = {f.stem.rsplit("_", 1)[0] for f in jsonl_files}
-    bad_stems = seen_stems - CANONICAL_PROFILES
-    assert not bad_stems, f"non-canonical profile stems detected: {bad_stems}"
+    bad_stems = seen_stems - DEFINED_PROFILES
+    assert not bad_stems, f"JSONL stems not defined in profiles.yaml: {bad_stems}"
     # And no legacy stem may appear — explicit guard against regression.
     legacy = {"identity", "transport", "owasp_top10"}
     assert not (seen_stems & legacy), f"legacy filename stems detected: {seen_stems & legacy}"

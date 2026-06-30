@@ -121,6 +121,10 @@ resource "google_cloud_run_v2_job" "nuclei" {
           value = "targets/targets.txt"
         }
         env {
+          name  = "PROFILES_PATH"
+          value = "profiles/profiles.yaml"
+        }
+        env {
           name  = "CLIENT"
           value = var.client_name
         }

@@ -1,0 +1,76 @@
+# deployment.yaml — operator configuration for the gcp-deploy skill.
+#
+# HOW TO USE:
+#   1. Copy this file to deployments/<your-client>/deployment.yaml
+#      (inside the leansec-nuclei repo checkout — the folder is gitignored).
+#   2. Replace every <placeholder> with your real values.
+#   3. Populate targets.txt in the same folder with one URL per line.
+#   4. Invoke the skill: say "deploy this to GCP" or run /gcp-deploy
+#      from a Claude Code session in the deployments/<your-client>/ folder.
+#
+# DO NOT commit this file to the public repo.
+# DO NOT run terraform apply from infra/gcp/_example/ directly.
+
+# required — must be 1
+schema_version: 1
+
+deployment:
+  # required — short lowercase identifier for this client
+  # used as a prefix on all GCP resource names (buckets, Cloud Run job, SAs)
+  # 2-31 characters: a-z, 0-9, hyphen; must start with a letter
+  client_name: <your-client>
+
+  # required — GCP project ID the scanner will be deployed into
+  # 6-30 characters: a-z, 0-9, hyphen; must start with a letter
+  gcp_project_id: <your-gcp-project>
+
+  # optional — GCP region for all regional resources
+  # default: asia-southeast1
+  region: asia-southeast1
+
+scanner:
+  # optional — omit this entire block to use the skill's baked-in default
+  # (ghcr.io/eriklacson/leansec-nuclei:latest)
+  # specify a pinned semver tag for production reproducibility
+  image: ghcr.io/eriklacson/leansec-nuclei:latest
+
+features:
+  # optional — provision Cloud Scheduler to run scans on the cron below
+  # default: true
+  enable_scheduler: true
+
+  # optional — provision Workload Identity Federation so external CI
+  # (e.g. GitHub Actions) can trigger scans without long-lived keys
+  # default: false
+  enable_wif: false
+
+  # optional — provision an Artifact Registry repository to mirror the
+  # GHCR scanner image into your project (mirror push is manual post-apply)
+  # default: false
+  enable_ar_mirror: false
+
+schedule:
+  # optional — cron expression for the scheduled scan
+  # default: first Sunday of every month at 02:00
+  cron: "0 2 1-7 * 0"
+
+  # optional — IANA timezone name for the scheduler
+  # default: Etc/UTC
+  timezone: Etc/UTC
+
+targets:
+  # optional — path to the targets file, relative to this deployment.yaml
+  # default: ./targets.txt
+  file: ./targets.txt
+
+profiles:
+  # optional — path to the scan profiles file, relative to this deployment.yaml
+  # default: ./profiles.yaml
+  #
+  # profiles.yaml controls which Nuclei scan profiles run for this client and at
+  # what rate. Edit it to add, remove, or tune profiles, then re-run `terraform apply`
+  # to push the updated file to GCS — the next Cloud Run execution picks it up.
+  #
+  # To start from the canonical template:
+  #   cp "$REPO_ROOT/scanner/_example/profiles.yaml" ./profiles.yaml
+  file: ./profiles.yaml

@@ -1,18 +1,17 @@
 # Example deployment — template only.
-# Copy this folder to client-controlled private storage; do NOT deploy
-# from this path. See docs/setup-guide.md for the full walkthrough.
+# Copy this folder to deployments/<your-client>/ inside the repo checkout.
+# Do NOT run terraform apply from this path. See docs/setup-guide.md.
 
-# Module call. `source` pulls infra/gcp/ from the public repo at a pinned
-# semver tag. Use a tag rather than a branch so the module shape is
-# reproducible across applies.
+# Module call. `source` is a relative path that resolves correctly when this
+# folder is copied to deployments/<client>/ inside the repo checkout.
 module "nuclei" {
-  source = "git::https://github.com/eriklacson/leansec-nuclei.git//infra/gcp?ref=v1.0.0"
+  source = "../../infra/gcp"
 
   project_id    = var.project_id
   client_name   = var.client_name
   scanner_image = var.scanner_image
   targets_file  = "${path.module}/targets.txt"
-  profiles_file = "${path.module}/../../scanner/profiles/profiles.yaml"
+  profiles_file = "${path.module}/profiles.yaml"
 
   # Feature flags — uncomment to override defaults.
   # enable_scheduler      = true
@@ -41,5 +40,5 @@ variable "client_name" {
 variable "scanner_image" {
   description = "Scanner image URI, pinned to a semver tag for production"
   type        = string
-  default     = "ghcr.io/eriklacson/leansec-nuclei:v1.0.0"
+  default     = "ghcr.io/eriklacson/leansec-nuclei:latest"
 }

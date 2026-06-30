@@ -131,8 +131,8 @@ cat <<EOF
 ────────────────────────────────────────────────────────────────────────
 Next steps
 ────────────────────────────────────────────────────────────────────────
-1. Copy deployments/_example/ to your private storage:
-     cp -r deployments/_example/ /path/to/private/<client>/
+1. Copy the example to your deployment folder:
+     cp -r infra/gcp/_example/ deployments/<client>/
 
 2. Edit terraform.tfvars in your copy:
      project_id    = "${PROJECT_ID}"

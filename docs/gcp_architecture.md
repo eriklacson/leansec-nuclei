@@ -12,9 +12,18 @@ The pipeline runs Nuclei against external client assets on a monthly cadence, wr
 
 This repository is public. It contains the reusable scanning pipeline: scanner, container image build, Terraform module, documentation. It contains **zero client-identifying data**.
 
-Per-client deployment configuration — Terraform `tfvars`, target lists, backend configuration — lives entirely outside this repository, in client-controlled storage. There is no `deployments/<client>/` folder in this repo. [`deployments/_example/`](../deployments/_example/) exists only as a template documenting what a private deployment folder should contain.
+Per-client deployment configuration — Terraform `tfvars`, target lists, backend configuration — lives in `deployments/<client>/` inside the repo checkout, but is gitignored. No client-identifying files are ever committed. [`infra/gcp/_example/`](../infra/gcp/_example/) is the template operators copy to start a new deployment.
 
 This is the standard shape for an open-source consulting product: the public repo publishes the module; consumers reference it from private workspaces. Terraform's own ecosystem works exactly this way (`terraform-aws-modules`, `cdk-patterns`, etc.).
+
+### Skill-assisted deployment
+
+The [`gcp-deploy` Claude Code skill](../.claude/skills/gcp-deploy/README.md) is an
+automation layer over this operating model. It reads a high-level `deployment.yaml`,
+validates it, renders the Terraform inputs described in this document, and orchestrates
+`terraform init`, `plan`, and `apply` with operator confirmation in chat. The skill
+invokes the same `infra/gcp/` module described here — it does not bypass or replace it.
+The architecture is unchanged; the skill is purely a *how*, not a *what*.
 
 ### The operator is the architect, not CI
 
@@ -68,7 +77,7 @@ No LeanSecurity-owned GCP infrastructure. No per-client artifacts in the public 
 |---|---|---|
 | Scanner code, Terraform module, Dockerfile, `_example/` | Public repo | LeanSecurity |
 | Scanner image | GHCR (public) | LeanSecurity |
-| Per-client tfvars, targets.txt, backend.tf | Client-controlled private storage | Client / shared with architect |
+| Per-client tfvars, targets.txt, backend.tf | `deployments/<client>/` in repo checkout (gitignored) | Client / shared with architect |
 | Per-client Terraform state | GCS bucket in client GCP project | Client |
 | Per-client GCP resources (buckets, Cloud Run, Scheduler, IAM) | Client GCP project | Client |
 
@@ -153,8 +162,8 @@ Onboarding a new client is a procedure run by the architect. It is mechanical, s
 | 2 | Enable required APIs in the client project | Client project | gcloud |
 | 3 | Create Terraform state bucket | Client project | [`scripts/bootstrap-gcp-client.sh`](../scripts/bootstrap-gcp-client.sh) |
 | 4 | Grant architect IAM access to the client project | Client project | gcloud (by client admin) |
-| 5 | Provision private storage for the deployment folder | Per engagement | Client-controlled (private git repo, encrypted shared drive, GCS bucket, etc.) |
-| 6 | Copy `deployments/_example/` into the private storage | Architect workstation | git / filesystem |
+| 5 | Create deployment folder in the repo checkout | Architect workstation | `cp -r infra/gcp/_example/ deployments/<client>/` |
+| 6 | Populate `terraform.tfvars`, `backend.tf`, `targets.txt` | Architect workstation | editor |
 | 7 | Populate `terraform.tfvars`, `backend.tf`, `targets.txt` | Architect workstation | editor |
 | 8 | `terraform init` against the client state bucket | Architect workstation | terraform |
 | 9 | `terraform plan`, review | Architect workstation | terraform |
@@ -164,7 +173,7 @@ Onboarding a new client is a procedure run by the architect. It is mechanical, s
 
 Steps 1–4 are bootstrap: they create the trust anchor that lets Terraform run. They are codified in [`scripts/bootstrap-gcp-client.sh`](../scripts/bootstrap-gcp-client.sh) — not in Terraform, because Terraform itself depends on the state bucket and architect IAM access existing first.
 
-Steps 5–7 use the engagement-specific private storage. The architect maintains a local working copy of each client's deployment folder, with the source of truth being whatever private location the engagement designates (per-client variant). When the architect needs to update a client's config — change targets, bump scanner image version — they pull, edit, apply, push back.
+Steps 5–7 set up the client's deployment folder at `deployments/<client>/`. The folder is gitignored, so no client data is ever committed. The architect works from this folder on their local checkout; when they need to update a client's config — change targets, bump scanner image — they edit in place and re-apply.
 
 ### Required APIs (step 2)
 
@@ -199,5 +208,5 @@ A clean onboarding, with the bootstrap script in hand and a GCP project ready, i
 - [Root README](../README.md) — modes, quick starts, repo layout.
 - [Module reference](../infra/gcp/README.md) — variable + output tables, flag semantics.
 - [Setup guide](setup-guide.md) — step-by-step walkthrough with verification snippets and troubleshooting.
-- [`deployments/_example/`](../deployments/_example/) — template for the private deployment folder.
+- [`infra/gcp/_example/`](../infra/gcp/_example/) — template for the private deployment folder.
 - [`scripts/bootstrap-gcp-client.sh`](../scripts/bootstrap-gcp-client.sh) — one-shot project preparation.

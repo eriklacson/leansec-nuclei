@@ -5,10 +5,10 @@ buckets (config + results), service accounts, IAM bindings, and optional
 Workload Identity Federation and Artifact Registry mirror for the
 LeanSecurity Nuclei scanner pipeline.
 
-The module is consumed from a per-client deployment folder
-(`deployments/_example/` is the template). Architects run `terraform
-apply` from their workstation against the client GCP project; the public
-repository does not hold cloud credentials.
+The module is consumed from a per-client deployment folder at
+`deployments/<client>/` inside the repo checkout (gitignored).
+Copy `_example/` as the starting point. Architects run `terraform apply`
+from their workstation; the public repository does not hold cloud credentials.
 
 ## Prerequisites
 
@@ -58,11 +58,11 @@ repository does not hold cloud credentials.
 
 ## Example usage
 
-From a private deployment folder, copy of [`deployments/_example/`](../../deployments/_example/):
+From a deployment folder at `deployments/<client>/`, copied from [`_example/`](_example/):
 
 ```hcl
 module "nuclei" {
-  source = "git::https://github.com/eriklacson/leansec-nuclei.git//infra/gcp?ref=v1.0.0"
+  source = "../../infra/gcp"
 
   project_id    = "client-prod-1234"
   client_name   = "acme"
@@ -106,4 +106,4 @@ registry locality.
 - [Setup guide](../../docs/setup-guide.md) — end-to-end walkthrough.
 - [Architecture](../../docs/gcp_architecture.md) — design rationale.
 - [Bootstrap script](../../scripts/bootstrap-gcp-client.sh) — one-shot project preparation.
-- [`deployments/_example/`](../../deployments/_example/) — template for private deployment folders.
+- [`_example/`](_example/) — template for deployment folders.

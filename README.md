@@ -119,15 +119,32 @@ Expect hits from `baseline_web`, `owasp_top10_core`, and `transport_security` pr
 
 Cloud-automated deployment runs the scanner as a Cloud Run job on a Cloud Scheduler cadence. The pipeline is architect-driven: an architect runs `terraform apply` from their workstation against the client GCP project; after that, Cloud Scheduler triggers the job autonomously.
 
+### Skill-assisted deployment (recommended)
+
+The `/gcp-deploy` Claude Code skill orchestrates the full deployment workflow from a
+single high-level `deployment.yaml`. It validates your configuration, renders Terraform
+inputs, summarises the plan, and applies with your confirmation — without you having to
+touch the Terraform files directly.
+
+**Invoke it** from a Claude Code session in your deployment folder:
+- Say "deploy this to GCP" or "set up the scanner on GCP"
+- Or run the `/gcp-deploy` slash command
+
+See [`.claude/skills/gcp-deploy/README.md`](.claude/skills/gcp-deploy/README.md) for
+prerequisites and a workflow overview, and [`docs/setup-guide.md`](docs/setup-guide.md)
+for the full walkthrough.
+
+### Manual deployment (alternative)
+
 ```bash
 # 1. Bootstrap the client GCP project (one-time)
 ./scripts/bootstrap-gcp-client.sh <your-project-id>
 
 # 2. Copy the example folder to your private storage
-cp -r deployments/_example/ /path/to/private/<client>/
+cp -r infra/gcp/_example/ deployments/<client>/
 
 # 3. Edit terraform.tfvars + backend.tf + targets.txt in your copy, then
-cd /path/to/private/<client>/
+cd deployments/<client>/
 terraform init
 terraform plan
 terraform apply
@@ -145,7 +162,9 @@ leansecurity-nuclei/
 ├── docker/                     # Container build (used by both Local Docker and Cloud modes)
 ├── infra/gcp/                  # Reusable GCP Terraform module
 ├── scripts/                    # Operator scripts (bootstrap-gcp-client.sh)
-├── deployments/_example/       # Deployment template (copy to private storage)
+├── scanner/_example/           # Local CLI deployment template
+├── docker/_example/            # Local Docker deployment template
+├── infra/gcp/_example/         # GCP deployment template
 ├── docs/                       # Architecture + setup guide
 └── .github/workflows/          # CI (lint/test) + publish-image (GHCR)
 ```
