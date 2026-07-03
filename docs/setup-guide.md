@@ -6,6 +6,29 @@ Architecture context: [`gcp_architecture.md`](gcp_architecture.md). Module refer
 
 ---
 
+## Which topology do you need?
+
+Two GCP deployment topologies exist — see
+[ADR-008](../decisions/ADR-008-per-client-repo-topology.md) for the full
+decision. Pick one before starting:
+
+- **In-repo (default, this guide).** The deployment folder lives under
+  `deployments/<client>/` inside this repo, gitignored, and the architect
+  runs every `terraform apply` locally (or via the `gcp-deploy` skill). The
+  client has no access to this repo. This is the right choice unless the
+  client specifically needs to self-manage redeploys.
+- **Client-owned repo.** The client operates their own private repo,
+  scaffolded from [`infra/gcp/client-repo-template/`](../infra/gcp/client-repo-template/README.md),
+  with GitHub Actions (WIF-only auth) driving `terraform plan`/`apply` on
+  their own PRs/merges. The architect still runs a one-time local bootstrap
+  to provision the WIF trust binding, then hands off and steps back. Follow
+  [`infra/gcp/client-repo-template/README.md`](../infra/gcp/client-repo-template/README.md)
+  for that walkthrough instead of this guide.
+
+The rest of this page covers the in-repo topology only.
+
+---
+
 ## Quick start: using the gcp-deploy skill (recommended)
 
 The `/gcp-deploy` Claude Code skill handles the full deployment workflow for you. If you
@@ -424,3 +447,5 @@ If the job hangs without finishing a profile, check Cloud Run logs for the offen
 - [Architecture](gcp_architecture.md)
 - [Module reference](../infra/gcp/README.md)
 - [Root README](../README.md)
+- [ADR-008 — per-client repo topology](../decisions/ADR-008-per-client-repo-topology.md)
+- [Client-owned repo template](../infra/gcp/client-repo-template/README.md)

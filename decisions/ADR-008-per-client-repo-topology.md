@@ -2,8 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-02
-- **Supersedes (partially):** Seed document §"Client Deployments" (`LeanSecurity_Nuclei_seed_document.md:17`) — "The client's deployment lives under `deployments/<client>/` in the repository. The client does not own or modify the scanner, infrastructure modules, or CI/CD workflows."
-- **Related:** Task spec `.claude/tasks/gha-config-sync-private-repo.md`; the `gcp-deploy` skill (`.claude/skills/gcp-deploy/`), which implements the in-repo topology this ADR does not replace.
+- **Supersedes (partially):** Seed document §"Client Deployments" — prior wording (before this ADR's accompanying doc edit) read: "The client's deployment lives under `deployments/<client>/` in the repository. The client does not own or modify the scanner, infrastructure modules, or CI/CD workflows." That line was rewritten to describe both topologies as part of the same commit that adds this ADR (`LeanSecurity_Nuclei_seed_document.md:17`); see "What this supersedes" below for the before/after.
+- **Related:** Task spec `.claude/tasks/gha-config-sync-private-repo.md`; the `gcp-deploy` skill (`.claude/skills/gcp-deploy/`), which implements the in-repo topology this ADR does not replace; `infra/gcp/client-repo-template/README.md`, the operator-facing walkthrough for the topology this ADR describes.
 - **Architect:** Erik
 - **Consulted:** —
 
