@@ -10,22 +10,30 @@ Architecture context: [`gcp_architecture.md`](gcp_architecture.md). Module refer
 
 Two GCP deployment topologies exist — see
 [ADR-008](../decisions/ADR-008-per-client-repo-topology.md) for the full
-decision. Pick one before starting:
+decision:
 
-- **In-repo (default, this guide).** The deployment folder lives under
+- **In-repo (default).** The deployment folder lives under
   `deployments/<client>/` inside this repo, gitignored, and the architect
-  runs every `terraform apply` locally (or via the `gcp-deploy` skill). The
-  client has no access to this repo. This is the right choice unless the
-  client specifically needs to self-manage redeploys.
-- **Client-owned repo.** The client operates their own private repo,
-  scaffolded from [`infra/gcp/client-repo-template/`](../infra/gcp/client-repo-template/README.md),
-  with GitHub Actions (WIF-only auth) driving `terraform plan`/`apply` on
-  their own PRs/merges. The architect still runs a one-time local bootstrap
-  to provision the WIF trust binding, then hands off and steps back. Follow
+  runs every `terraform apply` locally (or via the `gcp-deploy` skill),
+  indefinitely. The client has no access to this repo. This is the right
+  choice unless the client specifically needs to self-manage redeploys.
+- **Client-owned repo.** Same as above initially — you still bootstrap
+  from `deployments/<client>/` in this repo using the walkthrough below,
+  with `enable_wif: true` and `wif_github_repository` set to the client's
+  own (already-created) repo. That's the only difference in this guide's
+  steps. After the first successful `terraform apply`, this deployment
+  hands off: the client copies
+  [`infra/gcp/client-repo-template/`](../infra/gcp/client-repo-template/README.md)
+  into their own repo using the WIF values you hand them, and their own
+  GitHub Actions (WIF-only auth) take over `terraform plan`/`apply` on
+  their own PRs/merges from then on. Follow
   [`infra/gcp/client-repo-template/README.md`](../infra/gcp/client-repo-template/README.md)
-  for that walkthrough instead of this guide.
+  for the client-side steps and full sequencing (client repo must exist
+  *before* this guide's bootstrap apply, since `wif_github_repository`
+  names it).
 
-The rest of this page covers the in-repo topology only.
+This guide covers the architect-run bootstrap common to both topologies.
+Where a step differs for the client-owned path, it's called out inline.
 
 ---
 
@@ -89,6 +97,7 @@ You need:
 - **Terraform** >= 1.8 installed locally.
 - **A private storage location** for this client's deployment folder. It can be a private git repo, an encrypted shared drive, or any storage your team controls. **It must not be a fork of the public `leansecurity-nuclei` repo.**
 - **IAM on the target project** — see the IAM section of [`infra/gcp/README.md`](../infra/gcp/README.md#prerequisites). The bootstrap script prints the exact role list.
+- **Client-owned topology only:** the client's own private GitHub repo (e.g. `gh repo create <owner>/<repo> --private`) must already exist, and you must know its `owner/repo` name, before you run `terraform apply` in Step 8 — it's baked into the WIF trust binding at apply time. See [`infra/gcp/client-repo-template/README.md`](../infra/gcp/client-repo-template/README.md) for the full sequencing.
 
 ---
 
@@ -150,6 +159,7 @@ Notes:
 
 - `client_name` must be valid as a GCS bucket name prefix and a service account ID prefix — lowercase letters, digits, hyphens; no underscores.
 - Pin `scanner_image` to a semver tag (or `:<short-sha>`). **Do not use `:latest` in production** — it produces non-reproducible deploys.
+- **Client-owned topology only:** also set `enable_wif = true` and `wif_github_repository = "<owner>/<repo>"` (the client's already-created repo — see the prerequisite above). Leave `enable_wif` at its default `false` for the in-repo topology.
 
 ---
 
@@ -248,6 +258,20 @@ scheduler_job_name = "<client>-nuclei-monthly"
 scanner_service_account_email = "<client>-nuclei-scanner@<project>.iam.gserviceaccount.com"
 ```
 
+**Client-owned topology only:** also read back the WIF values and hand them to the client —
+they don't need anything else from you after this:
+
+```bash
+terraform output wif_provider_name
+terraform output scanner_service_account_email
+```
+
+Give the client `wif_provider_name`, `scanner_service_account_email`, `project_id`, `region`,
+and `client_name`. From here the client follows
+[`infra/gcp/client-repo-template/README.md`](../infra/gcp/client-repo-template/README.md) to
+scaffold their own repo; their GitHub Actions take over `terraform apply` on future changes.
+You still complete Steps 9–11 below once, to confirm this first apply actually worked.
+
 ---
 
 ## Step 9 — Trigger the first scan manually
@@ -314,6 +338,11 @@ If state is `PAUSED`, re-enable with `gcloud scheduler jobs resume`.
 ---
 
 ## Ongoing operations
+
+**Client-owned topology:** everything below this point is the client's responsibility from
+their own repo (PR → merge) once you've handed off the WIF values in Step 8 — you don't run
+these `terraform apply` commands from `deployments/<client>/` again unless the client asks you
+to. The rest of this section applies to the in-repo topology.
 
 ### Change targets
 
