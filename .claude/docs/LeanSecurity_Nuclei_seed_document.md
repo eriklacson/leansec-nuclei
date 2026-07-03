@@ -14,7 +14,7 @@ The baseline operating mode is a local CLI scan run from the consultant's machin
 
 This is LeanSecurity internal IP. It is not a required client deliverable. Clients receive scan results and remediation guidance, or use the pipeline as part of a consulting engagement. 
 
-The first proof-of-concept deployment is for an active client engagement. The client's deployment lives under `deployments/<client>/` in the repository. The client does not own or modify the scanner, infrastructure modules, or CI/CD workflows.
+The first proof-of-concept deployment is for an active client engagement. Two GCP deployment topologies exist (see ADR-008): the default, where the client's deployment lives under `deployments/<client>/` in this repository and the client does not own or modify the scanner, infrastructure modules, or CI/CD workflows; and a client-owned topology, where the client operates their own private repo (scaffolded from `infra/gcp/client-repo-template/`) with its own CI/CD, while the scanner and `infra/gcp/` Terraform module remain consumed by reference, never forked or edited.
 
 ### Project Separation
 

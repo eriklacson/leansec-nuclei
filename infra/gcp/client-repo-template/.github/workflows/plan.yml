@@ -1,0 +1,80 @@
+# Runs terraform plan on every PR and posts the result as a collapsed PR
+# comment. Never applies. Same WIF-only auth as deploy.yml.
+name: Plan
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SA_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: terraform init
+        run: terraform init
+
+      - name: terraform plan
+        id: plan
+        shell: bash
+        run: |
+          set -o pipefail
+          terraform plan -no-color -out=tfplan | tee plan_output.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+        continue-on-error: true
+
+      - name: Comment plan on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const raw = fs.readFileSync('plan_output.txt', 'utf8');
+            const maxLen = 60000;
+            const body = raw.length > maxLen
+              ? raw.slice(0, maxLen) + '\n\n... truncated, see workflow run logs for the full plan.'
+              : raw;
+            const summaryLine = (raw.split('\n').find(l => l.startsWith('Plan:')) || 'No changes or plan failed — see details.').trim();
+            const comment = `## Terraform Plan\n\n**${summaryLine}**\n\n<details>\n<summary>Full plan output</summary>\n\n\`\`\`\n${body}\n\`\`\`\n\n</details>`;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.startsWith('## Terraform Plan'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: comment,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment,
+              });
+            }
+
+      - name: Fail if plan failed
+        if: steps.plan.outputs.exitcode == '1'
+        run: exit 1

@@ -44,6 +44,12 @@ features:
   # default: false
   enable_wif: false
 
+  # required when enable_wif is true; ignored otherwise.
+  # GitHub "owner/repo" authorized to assume the scanner SA via WIF.
+  # This is the CLIENT's own repo (see ADR-008 / infra/gcp/client-repo-template/),
+  # not this repo — and it must already exist before you run this apply.
+  wif_github_repository: <client-owner>/leansec-nuclei-<your-client>
+
   # optional — provision an Artifact Registry repository to mirror the
   # GHCR scanner image into your project (mirror push is manual post-apply)
   # default: false
