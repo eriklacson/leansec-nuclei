@@ -1,0 +1,85 @@
+version: 1
+profiles:
+  baseline_web:
+    tags: [misconfig, headers, cors, ssl, tls, exposure, backup, secret, default-login]
+    severity: [medium, high, critical]
+    csf_subcategory: [PR.AA-01, PR.DS-01, PR.AA-03, PR.IR-01]
+    rate_limit: 3
+    concurrency: 2
+    retries: 2
+    timeout: 5
+    input_mode: list
+    output: baseline_web.jsonl
+    notes: "High-signal posture checks: headers, CORS, TLS config, exposed secrets/backups, default creds."
+
+  patch_cve:
+    tags: [cve, wordpress, confluence, jira, gitlab, jenkins, grafana, kibana, drupal, magento]
+    severity: [high, critical]
+    csf_subcategory: [PR.PS-01]
+    rate_limit: 3
+    concurrency: 2
+    retries: 2
+    timeout: 5
+    input_mode: list
+    output: patch_cve.jsonl
+    notes: "Known-vuln sweeps for common stacks. Also serves as DE.CM-08 evidence."
+
+  identity_remote_access:
+    tags: [default-login, auth, admin-panel, exposure]
+    severity: [high, critical]
+    csf_subcategory: [PR.AA-01, PR.AA-03]
+    rate_limit: 3
+    concurrency: 2
+    retries: 2
+    timeout: 5
+    input_mode: list
+    output: identity_remote_access.jsonl
+    notes: "Default creds, weak auth surfaces, exposed admin consoles."
+
+  data_protection:
+    tags: [secret, exposure, backup, s3, cloud, git, env, token]
+    severity: [medium, high, critical]
+    csf_subcategory: [PR.DS-01]
+    rate_limit: 3
+    concurrency: 2
+    retries: 2
+    timeout: 5
+    input_mode: list
+    output: data_protection.jsonl
+    notes: "Secrets/.env/.git, public buckets/backups."
+
+  transport_security:
+    tags: [ssl, tls, headers, hsts]
+    severity: [info, low, medium, high]
+    csf_subcategory: [PR.IR-01]
+    rate_limit: 3
+    concurrency: 2
+    retries: 2
+    timeout: 5
+    input_mode: list
+    output: transport_security.jsonl
+    notes: "TLS versions/ciphers, HSTS, secure transport."
+
+  owasp_top10_core:
+    tags: [xss, sqli, ssrf, lfi, rfi, xxe, csrf, open-redirect, cmdi, ssti, template-injection, deserialization, path-traversal, traversal, auth, auth-bypass, jwt, default-login, weak-password, misconfig, exposure, disclosure, backup, secret, headers, cors, csp, ssl, tls]
+    severity: [info, low, medium, high, critical]
+    csf_subcategory: [PR.PS-01]
+    rate_limit: 10
+    concurrency: 5
+    retries: 2
+    timeout: 10
+    input_mode: list
+    output: owasp_top10_core.jsonl
+    notes: "Baseline OWASP Top 10 sweep."
+
+  vuln_monitoring:
+    tags: [cve]
+    severity: [high, critical]
+    csf_subcategory: [PR.PS-01]
+    rate_limit: 3
+    concurrency: 2
+    retries: 2
+    timeout: 5
+    input_mode: list
+    output: vuln_monitoring.jsonl
+    notes: "Cadence-based CVE monitoring. Primary DE.CM-08 evidence."

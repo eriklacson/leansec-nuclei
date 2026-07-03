@@ -176,6 +176,13 @@ except ValidationError as e:
 
 ### Step 4 — Run `scripts/bootstrap-gcp-client.sh` if not already done
 
+**If `features.enable_wif` is `true` in `deployment.yaml`:** confirm with the operator that
+the repo named in `features.wif_github_repository` already exists (it's the client's own
+repo — see ADR-008 / `infra/gcp/client-repo-template/`) before continuing. The WIF trust
+binding created by this apply is scoped to that exact `owner/repo`; running this step
+before the repo exists doesn't fail loudly, it just produces a binding for a repo name
+that isn't there yet.
+
 Ask the operator: *"Has the GCP project already been bootstrapped (APIs enabled, Terraform state bucket created)? If you're not sure, it's safe to re-run — the script is idempotent."*
 
 If operator confirms bootstrap is needed or is unsure:
@@ -209,7 +216,7 @@ Read all values from `deployment.yaml`. Apply defaults for any optional fields:
 | `schedule.timezone` | `Etc/UTC` |
 | `targets.file` | `./targets.txt` |
 | `profiles.file` | `./profiles.yaml` |
-| `wif_github_repository` | `""` (empty — harmless when enable_wif is false) |
+| `features.wif_github_repository` | `""` when `enable_wif` is false. **Required, no default, when `enable_wif` is true** — schema validation in step 3 fails the run before this step if it's missing. Must be the client's own `owner/repo` (see ADR-008) and that repo must already exist — this skill does not create it. |
 
 Use the templates in `$REPO_ROOT/.claude/skills/gcp-deploy/templates/`. Substitute every `{{placeholder}}` with the resolved value. Write the rendered files into the current deployment folder, overwriting any existing versions.
 
@@ -385,6 +392,55 @@ Present a completion summary:
 4. (if enable_ar_mirror) Push the scanner image to the AR repo manually,
    then update scanner_image in deployment.yaml to the AR URI and re-deploy.
 ```
+
+**If `features.enable_wif` was `true` for this apply:** this deployment now hands off to the
+client-owned repo topology (ADR-008). By this point the client's repo already exists — step 4
+required it before this apply ran, since `wif_github_repository` had to name it. Read the WIF
+values back from Terraform and hand them to the client:
+
+```bash
+terraform output wif_provider_name
+terraform output scanner_service_account_email
+```
+
+Print this to the operator, with the actual values substituted in, to relay to the client:
+
+```
+## Hand off to the client repo
+
+The client's repo (<owner>/<repo>, from features.wif_github_repository) can now authenticate
+to this GCP project via Workload Identity Federation. Send the client these values — they are
+not secrets, but they are specific to this deployment:
+
+  GCP_WIF_PROVIDER = <terraform output wif_provider_name>
+  GCP_SA_EMAIL      = <terraform output scanner_service_account_email>
+  GCP_PROJECT_ID    = <gcp_project_id>
+  GCP_REGION        = <region>
+  GCP_CLIENT_NAME   = <client_name>
+
+The client sets these as repository variables (not secrets — none of these values grant
+access on their own without the WIF trust binding, which is scoped to their exact repo name):
+
+  gh variable set GCP_WIF_PROVIDER --body "<wif_provider_name>"
+  gh variable set GCP_SA_EMAIL     --body "<scanner_service_account_email>"
+  gh variable set GCP_PROJECT_ID   --body "<gcp_project_id>"
+  gh variable set GCP_REGION       --body "<region>"
+  gh variable set GCP_CLIENT_NAME  --body "<client_name>"
+
+Then the client copies infra/gcp/client-repo-template/ (this repo, leansec-nuclei) into their
+own repo if they haven't already, fills terraform.tfvars with the SAME project_id/client_name
+used in this apply (see the warning in that repo's main.tf — mismatched values orphan these
+resources rather than adopting them), and pushes to main.
+
+From this point on, config changes (targets.txt, profiles.yaml) and redeployments happen via
+PR → merge on the client's own repo. Re-running this skill against the local deployment.yaml
+still works, but the client's repo has become the primary path going forward.
+```
+
+- **Success:** Operator has the exact values to relay; client can complete their own setup
+  without coming back to the architect for anything except these five values.
+- **Failure:** `terraform output` returns null for `wif_provider_name` — `enable_wif` was
+  false for this apply. Re-run with `enable_wif: true` and `wif_github_repository` set.
 
 ---
 

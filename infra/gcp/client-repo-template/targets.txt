@@ -1,0 +1,2 @@
+# One target URL per line. Uploaded to gs://<client_name>-nuclei-config/targets/targets.txt
+# on every push to main (see .github/workflows/deploy.yml).

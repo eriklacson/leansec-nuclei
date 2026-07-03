@@ -1,111 +1,89 @@
-# Plan — move-profiles-to-deploy
+# Plan — gha-config-sync-private-repo
 
-## Summary
+Status: **approved 2026-07-02.** Architect answers below; implementation proceeds per this plan.
 
-Move profiles.yaml from a single global path to a per-client deployment artifact.
-`scan.py` will look for `deployments/<client>/profiles.yaml` first; if absent, fall back
-to `scanner/profiles/profiles.yaml`. This enables per-client profile customization without
-breaking Docker builds or GCP infra (which continue reading the global copy baked into the image).
+## Architect decisions (2026-07-02)
 
----
+- **Repo ownership (open question #1):** client-owned/forked. Each client forks or copies
+  `client-repo-template/` into their **own** GitHub account — not `eriklacson` and not a
+  shared `leansec-clients` org. There is no centrally-owned client repo.
+- **Access control (open question #5):** client pushes to their own repo and operates it
+  independently once bootstrapped. This is a real change from the seed document's stated
+  "the client does not own or modify... CI/CD workflows" (`LeanSecurity_Nuclei_seed_document.md:17`)
+  — the ADR (task below) must say so explicitly, since it's the architectural point this whole
+  task changes.
+- **Plan approved as written**, including: ADR-008, the `wif_github_repository` schema fix,
+  and the corrected Phase 3 ordering (client repo must exist before local WIF bootstrap runs,
+  since `wif_github_repository` is that repo's `owner/repo`).
 
-## Assumption requiring architect confirmation
+Consequence for Phase 3 sequencing: since the client owns the repo, "operator" in the
+task file's Phase 3 splits into two roles — the **architect** (runs local GCP bootstrap,
+provisions the WIF trust binding, hands off `terraform output` values) and the **client**
+(creates their own repo, receives the WIF provider/SA values, sets them as repo variables,
+pushes the template). Step 5 below reflects this.
 
-**Fallback vs. hard move**: The task says "move", implying the global file could be deleted.
-However, `docker/Dockerfile.local` bakes in `scanner/` (including `scanner/profiles/`), and
-`infra/gcp/main.tf` defaults `profiles_file` to `scanner/profiles/profiles.yaml`. Deleting the
-global file breaks the container build and GCP upload without a separate change.
+## Recommended sequencing (subject to answers below)
 
-**Recommendation**: Keep the global file; make per-client override opt-in via lookup order.
-Operators copy `scanner/_example/profiles.yaml` to `deployments/<client>/profiles.yaml` to
-customize. No global file deletion in this task.
+1. **ADR first.** Add `decisions/ADR-008-per-client-repo-topology.md` recording that
+   per-client private repos are an intentional second deployment topology alongside the
+   documented `deployments/<client>/` in-repo model — not a replacement. Update the one
+   sentence in the seed document (`.claude/docs/LeanSecurity_Nuclei_seed_document.md:17`)
+   that currently states the in-repo model as if it's the only one.
+2. **Close the WIF schema gap** (found in scope.md §2) before Phase 3 can work at all:
+   add `features.wif_github_repository` (string, required when `enable_wif: true`) to
+   `deployment.schema.json`, `deployment.example.yaml`, and a SKILL.md prompt step. Without
+   this, "enable WIF" in Phase 3 step 1 has no value to bind.
+3. **Phase 1 — `infra/gcp/client-repo-template/`** as specified in the task file, with the
+   git-ref module source (this is correct for an external repo — no relative path is
+   possible). Add a header comment in its `main.tf` clarifying it's for the *external private
+   repo* topology, distinct from `infra/gcp/_example/` (used by the skill for the *in-repo*
+   topology), so the two don't get confused later.
+4. **Phase 2 — `deploy.yml` / `plan.yml`** inside the template, built from scratch (no
+   existing precedent — `infra/gcp/workflows/deploy.yml` referenced in CLAUDE.md/seed doc
+   does not exist on disk).
+5. **Phase 3 — bootstrap sequencing, corrected order (client-owned repo model):**
+   a. **Client** creates their own private repo first (`gh repo create leansec-nuclei-<client> --private`,
+      under their own account — not the architect's).
+   b. Client tells the architect the repo's `owner/repo` name.
+   c. **Architect** runs the gcp-deploy skill locally with `enable_wif: true` and
+      `wif_github_repository: <client-owner>/leansec-nuclei-<client>` now populated (closes
+      the ordering conflict — the repo exists before the value that names it is bound into
+      the WIF trust policy).
+   d. Architect hands the client the WIF provider resource name, SA email, project ID,
+      region, and client name from `terraform output` (SKILL.md Step 11, Phase 4 below).
+   e. **Client** copies `client-repo-template/` contents into their repo, sets the 5 repo
+      variables the architect gave them, and pushes.
+   f. All future changes happen via PR → merge on the client's own repo — the client
+      operates it independently from that point on.
+6. **Phase 4 — amend SKILL.md Step 11** (report results) to print the `gh repo create` +
+   `gh variable set` commands pre-filled from actual `terraform output` values, and note
+   the corrected ordering from step 5 above.
 
-Confirm before I implement, or tell me to do a hard move (I'll update Docker + infra too).
+## Answers (resolved 2026-07-02)
 
----
+| # | Question | Decision |
+|---|---|---|
+| 1 | Repo ownership | Client-owned — their own GitHub account, not `eriklacson`, not a shared org. |
+| 2 | Module pin: semver tag or commit SHA? | Semver tag (`?ref=vX.Y.Z`) — matches existing `scanner_image` tag conventions; no precedent for SHA pinning in this repo. |
+| 3 | WIF bootstrap ordering | Client repo created first; architect runs local bootstrap second, once `wif_github_repository` is known (plan step 5). |
+| 4 | `terraform plan` PR comment size | Collapsed in a `<details>` block via `actions/github-script`; summary line visible outside it. |
+| 5 | Access control per client repo | Client pushes to their own repo and operates it independently post-bootstrap. |
+| 6 | `wif_github_repository` schema gap | Fix now — Phase 3 is inert without it. |
+| 7 | ADR now or later? | Now, before Phase 1 file creation — this task changes a documented architecture statement (seed doc §17), not just adds a feature. |
 
-## Deliverables
+## Verification (once approved and built)
 
-### 1. `scanner/_example/profiles.yaml` (new file)
-Copy of the canonical 7-profile set. This is the template operators copy when setting up a
-new client. Lives in `scanner/_example/` so it's tracked in git (unlike `deployments/` which
-is fully gitignored).
+- `terraform validate` / `terraform fmt -check` on the rendered `client-repo-template/` files
+  (cannot run `terraform plan` against real GCP from this environment — flagged as
+  architect-verified).
+- `deployment.schema.json` self-validates; updated `deployment.example.yaml` validates against it.
+- `poetry run black --check . && poetry run ruff check . && poetry run bandit -r . -x ".venv,venv,build,dist,docs,migrations,tests" && poetry run pytest -q` — this task adds no Python, so expect no change in outcome, but run to confirm no regression.
+- Manual review of `deploy.yml`/`plan.yml` YAML syntax (`yamllint` or GH Actions' own validation on push) — cannot dry-run GHA locally.
+- End-to-end (`gh repo create`, WIF trust, real `terraform apply` from GHA) is **architect-verified only** — this environment has no GCP credentials or GitHub write access for a real client.
 
-### 2. `scanner/scan.py` — update `PROFILES_PATH` resolution
-Replace the hardcoded module-level constant with a function that resolves the profile path
-based on the client argument:
+## Out of scope (per task file, unchanged)
 
-```python
-def _resolve_profiles_path(client: str) -> Path:
-    # Per-client override wins; global default is the fallback.
-    client_profiles = REPO_ROOT / "deployments" / client / "profiles.yaml"
-    if client_profiles.exists():
-        return client_profiles
-    return Path(__file__).resolve().parent / "profiles" / "profiles.yaml"
-```
-
-Called inside `main()` after `client` is parsed:
-```python
-profiles_path = _resolve_profiles_path(client)
-profiles = load_profiles(str(profiles_path)).get("profiles", {})
-```
-
-The module-level `PROFILES_PATH` constant is removed (it was unused in calls already,
-since `main()` is the sole caller and it can inline the resolution).
-
-### 3. `tests/test_scan_profiles_path.py` (new test file)
-New test module covering the lookup logic:
-
-- `test_uses_client_profiles_when_present` — tmp_path with a `deployments/<client>/profiles.yaml`; assert `_resolve_profiles_path` returns that path.
-- `test_falls_back_to_global_when_absent` — no client profiles.yaml; assert returns `scanner/profiles/profiles.yaml`.
-- `test_scan_main_respects_client_profiles` — integration test: mock `load_profiles` and `shutil.which`; verify `scan.py`'s `main()` calls `load_profiles` with the client-local path when present.
-
-### 4. `scanner/_example/README.md` — update
-Add a line noting that `profiles.yaml` can be copied to `deployments/<client>/profiles.yaml`
-to customize scan behavior for that client. One sentence, no prose bloat.
-
----
-
-## Files changed
-
-| File | Change |
-|------|--------|
-| `scanner/scan.py` | Replace module-level `PROFILES_PATH` with `_resolve_profiles_path(client)` called in `main()` |
-| `scanner/_example/profiles.yaml` | New — 7-profile template (copy of `scanner/profiles/profiles.yaml`) |
-| `scanner/_example/README.md` | Update — add one line about profiles.yaml override |
-| `tests/test_scan_profiles_path.py` | New — 3 tests covering lookup behavior |
-
----
-
-## Files NOT changed
-
-| File | Reason |
-|------|--------|
-| `scanner/profiles/profiles.yaml` | Preserved as global default + Docker build source |
-| `docker/Dockerfile.local` | No change; bakes `scanner/` including global profiles |
-| `infra/gcp/main.tf` | No change; `profiles_file` variable still defaults to global path |
-| `scanner/nuclei_helpers.py` | `load_profiles(path)` already accepts arbitrary path |
-| `scanner/validate_profiles.py` | Already accepts `--profiles-file` flag |
-| All existing tests | Existing tests use mock YAML, not the real profiles path |
-
----
-
-## Verification
-
-```bash
-poetry run black --check .
-poetry run ruff check .
-poetry run bandit -r . --severity-level high
-poetry run pytest
-```
-
-All four must pass before this task is considered complete.
-
----
-
-## Out of scope
-
-- Docker or GCP infra changes
-- Per-client profile content — operators provide their own
-- Removing `scanner/profiles/profiles.yaml`
-- `nuclei_convert_tool.py` or `validate_profiles.py` changes
+- Migrating the existing `mdi` deployment to a client repo.
+- AWS/Azure equivalents.
+- Automated module version bumps across client repos.
+- Any changes to `scanner/`, `docker/`, `ci.yaml`, `publish-image.yaml`.

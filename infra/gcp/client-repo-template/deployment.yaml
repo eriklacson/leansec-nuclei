@@ -1,0 +1,38 @@
+# deployment.yaml — human-readable record of this deployment's intent.
+#
+# This is a copy of the deployment.yaml the architect used with the
+# gcp-deploy skill (leansec-nuclei repo) for the initial local bootstrap
+# apply. It validates against the same schema
+# (.claude/skills/gcp-deploy/schema/deployment.schema.json in leansec-nuclei).
+#
+# It is NOT re-read by this repo's GitHub Actions workflows — the
+# authoritative Terraform inputs are terraform.tfvars, already rendered
+# from this file at bootstrap time. Keep this file in sync manually if you
+# ask the architect to change something here; it documents intent, it
+# doesn't drive automation in this repo.
+
+schema_version: 1
+
+deployment:
+  client_name: <your-client>
+  gcp_project_id: <your-gcp-project>
+  region: asia-southeast1
+
+scanner:
+  image: ghcr.io/eriklacson/leansec-nuclei:latest
+
+features:
+  enable_scheduler: true
+  enable_wif: true
+  wif_github_repository: <your-github-owner>/<this-repo-name>
+  enable_ar_mirror: false
+
+schedule:
+  cron: "0 2 1-7 * 0"
+  timezone: Etc/UTC
+
+targets:
+  file: ./targets.txt
+
+profiles:
+  file: ./profiles.yaml

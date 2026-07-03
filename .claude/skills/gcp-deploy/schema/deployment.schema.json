@@ -57,11 +57,23 @@
           "default": false,
           "description": "Provision Workload Identity Federation for external CI access. Default: false."
         },
+        "wif_github_repository": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+$",
+          "description": "GitHub repository (owner/repo) authorized to assume the scanner SA via WIF — the client's own repo, e.g. scaffolded from infra/gcp/client-repo-template/. Required when enable_wif is true. Must exist before this apply runs; see ADR-008."
+        },
         "enable_ar_mirror": {
           "type": "boolean",
           "default": false,
           "description": "Provision an Artifact Registry repository for mirroring the GHCR scanner image. Default: false."
         }
+      },
+      "if": {
+        "properties": { "enable_wif": { "const": true } },
+        "required": ["enable_wif"]
+      },
+      "then": {
+        "required": ["wif_github_repository"]
       }
     },
     "schedule": {

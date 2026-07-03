@@ -72,7 +72,7 @@ The skill executes 11 steps:
 8. **Summarise plan** — present resource counts; call out IAM bindings and destructive changes prominently
 9. **Confirm** — ask the operator for explicit approval before applying
 10. **`terraform apply`** — only after step 9 confirmation
-11. **Report** — list deployed resources and next steps (first scan trigger, AR mirror push if applicable)
+11. **Report** — list deployed resources and next steps (first scan trigger, AR mirror push, and — if `enable_wif` was set — the WIF values to hand off to the client's own repo; see ADR-008)
 
 ## What this skill does not do
 
@@ -88,3 +88,5 @@ The skill executes 11 steps:
 - [`docs/setup-guide.md`](../../docs/setup-guide.md) — full GCP setup walkthrough including manual path
 - [`docs/gcp_architecture.md`](../../docs/gcp_architecture.md) — what the module deploys and why
 - [`infra/gcp/README.md`](../../infra/gcp/README.md) — Terraform module reference
+- [`decisions/ADR-008-per-client-repo-topology.md`](../../decisions/ADR-008-per-client-repo-topology.md) — the client-owned repo topology this skill hands off to when `enable_wif` is set
+- [`infra/gcp/client-repo-template/`](../../infra/gcp/client-repo-template/) — the template a client copies into their own repo for that topology

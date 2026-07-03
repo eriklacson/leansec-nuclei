@@ -1,0 +1,49 @@
+# Applies Terraform and syncs targets.txt/profiles.yaml to GCS on every
+# push to main. Authenticates via Workload Identity Federation only — no
+# service account key is stored in this repo. See ADR-008 in leansec-nuclei
+# for why this repo exists and how it relates to the architect's initial
+# local bootstrap apply, which this workflow continues (same backend state).
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SA_EMAIL }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: terraform init
+        run: terraform init
+
+      - name: terraform apply
+        run: terraform apply -auto-approve
+
+      - name: Sync targets.txt and profiles.yaml to GCS
+        run: |
+          BUCKET="${{ vars.GCP_CLIENT_NAME }}-nuclei-config"
+          gcloud storage cp targets.txt   "gs://${BUCKET}/targets/targets.txt"   --project="${{ vars.GCP_PROJECT_ID }}"
+          gcloud storage cp profiles.yaml "gs://${BUCKET}/profiles/profiles.yaml" --project="${{ vars.GCP_PROJECT_ID }}"
