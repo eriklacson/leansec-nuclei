@@ -23,8 +23,16 @@ os.remove("/tmp/nuclei.zip")
 EOF
 
 # Bake Nuclei templates into the image so UPDATE_TEMPLATES=false works in tests
-# and air-gapped environments without a runtime network call.
-RUN nuclei -update-templates -silent
+# and air-gapped environments without a runtime network call. Verify templates
+# actually landed — `-update-templates` can exit 0 on a failed/empty fetch
+# (transient network issue, GitHub rate limit), silently shipping an image with
+# zero templates. Path confirmed against nuclei v3.4.10's .templates-config.json.
+RUN nuclei -update-templates -silent && \
+    count=$(find "${HOME}/nuclei-templates" -name '*.yaml' | wc -l) && \
+    if [ "${count}" -lt 1000 ]; then \
+      echo "ERROR: only ${count} Nuclei templates found after update (expected 1000+); template fetch likely failed" >&2; \
+      exit 1; \
+    fi
 
 # Runtime python deps: pyyaml for scan profiles; google-cloud-storage for GCS
 # config download and results upload in cloud mode (replaces gcloud CLI).
