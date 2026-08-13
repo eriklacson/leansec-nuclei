@@ -12,14 +12,6 @@ Automated Nuclei scans against external assets. Three deployment modes share the
 | **Local Docker** | Docker installed | Build from `docker/Dockerfile.local`, volume-mount config |
 | **Cloud (GCP)** | GCP project, Terraform | Cloud Run job + Cloud Scheduler. See [setup guide](docs/setup-guide.md) |
 
-### Operating model — public repo, private deployments
-
-This repository contains the reusable pipeline (scanner core, container, GCP module). **Per-client deployment configuration lives in client-controlled storage outside this repo.** By default, `terraform apply` is run from an architect's workstation against the client GCP project; the public-repo CI never holds GCP credentials and never touches client infrastructure. A second topology exists for clients who want ongoing changes to go through their own CI instead of the architect: a private repo the client owns applies the same Terraform module via Workload Identity Federation. See [ADR-008](decisions/ADR-008-per-client-repo-topology.md) and [`docs/gcp_architecture.md`](docs/gcp_architecture.md) for both.
-
-The scanner image is distributed via GitHub Container Registry: [`ghcr.io/eriklacson/leansec-nuclei`](https://ghcr.io/eriklacson/leansec-nuclei). Production deployments pin to a semver tag.
-
-For the full picture: [`docs/gcp_architecture.md`](docs/gcp_architecture.md) · [module reference](infra/gcp/README.md) · [end-to-end setup guide](docs/setup-guide.md).
-
 ## Quick Start (Local CLI)
 
 ```bash
@@ -115,13 +107,19 @@ ls results/localtest/$(date +%Y-%m)/
 
 Expect hits from `baseline_web`, `owasp_top10_core`, and `transport_security` profiles. Use this as smoke-test coverage before promoting profile changes to client deployments.
 
-## Cloud Deployment (GCP)
+## Cloud Deployment
 
-Cloud-automated deployment runs the scanner as a Cloud Run job on a Cloud Scheduler cadence. By default the pipeline is architect-driven: an architect runs `terraform apply` from their workstation against the client GCP project; after that, Cloud Scheduler triggers the job autonomously. Once provisioned, a client can instead own ongoing Terraform changes from their own private repo's CI ([ADR-008](decisions/ADR-008-per-client-repo-topology.md), [`infra/gcp/client-repo-template/`](infra/gcp/client-repo-template/)) — the sections below cover the architect-driven path.
+Cloud-automated deployment runs the scanner as an ephemeral cloud job on a scheduled cadence, in the target cloud provider. The sections below describe the model and tooling shared across cloud vendors, then point to each vendor's own README for the concrete steps.
 
-### Skill-assisted deployment (recommended)
+### Operating Model
 
-The `/gcp-deploy` Claude Code skill orchestrates the full deployment workflow from a
+This repository contains the reusable pipeline (scanner core, container, cloud modules). **Per-client deployment configuration lives in client-controlled storage outside this repo.** By default, `terraform apply` is run from an architect's workstation against the client's cloud project; the public-repo CI never holds cloud credentials and never touches client infrastructure. A second topology exists for clients who want ongoing changes to go through their own CI instead of the architect: a private repo the client owns applies the same Terraform module via Workload Identity Federation (currently implemented for GCP — see [ADR-008](decisions/ADR-008-per-client-repo-topology.md)).
+
+The scanner image is distributed via GitHub Container Registry: [`ghcr.io/eriklacson/leansec-nuclei`](https://ghcr.io/eriklacson/leansec-nuclei). Production deployments pin to a semver tag.
+
+### Skill-Assisted Deployment
+
+The `/gcp-deploy` Claude Code skill orchestrates the full GCP deployment workflow from a
 single high-level `deployment.yaml`. It validates your configuration, renders Terraform
 inputs, summarises the plan, and applies with your confirmation — without you having to
 touch the Terraform files directly.
@@ -131,28 +129,23 @@ touch the Terraform files directly.
 - Or run the `/gcp-deploy` slash command
 
 See [`.claude/skills/gcp-deploy/README.md`](.claude/skills/gcp-deploy/README.md) for
-prerequisites and a workflow overview, and [`docs/setup-guide.md`](docs/setup-guide.md)
-for the full walkthrough.
+prerequisites and a workflow overview.
 
-### Manual deployment (alternative)
+GCP is the only vendor with a deployment skill today — AWS and Azure have no Terraform module yet (see below), so there's nothing for a skill to orchestrate.
 
-```bash
-# 1. Bootstrap the client GCP project (one-time)
-./scripts/bootstrap-gcp-client.sh <your-project-id>
+### How to Deploy
 
-# 2. Copy the example folder to your private storage
-cp -r infra/gcp/_example/ deployments/<client>/
+#### GCP
 
-# 3. Edit terraform.tfvars + backend.tf + targets.txt in your copy, then
-cd deployments/<client>/
-terraform init
-terraform plan
-terraform apply
-```
+See [`infra/gcp/README.md`](infra/gcp/README.md) for prerequisites, required/optional variables, and where to start. For the full end-to-end walkthrough — including troubleshooting for common failure modes (API not enabled, IAM denied, image pull failure, etc.) — see [`docs/setup-guide.md`](docs/setup-guide.md). Maintainers publishing new scanner image versions: see [`docs/release.md`](docs/release.md).
 
-The scanner image is pulled from GHCR (`ghcr.io/eriklacson/leansec-nuclei`). Production deployments pin to a semver tag. The full walkthrough — including troubleshooting for the common failure modes (API not enabled, IAM denied, image pull failure, etc.) — is in [`docs/setup-guide.md`](docs/setup-guide.md). Maintainers publishing new image versions: see [`docs/release.md`](docs/release.md).
+#### AWS
 
-AWS and Azure modules under `infra/aws/` and `infra/azure/` are stubs and not part of the current activation.
+To follow. `infra/aws/` is currently a variable-interface stub with no Terraform implementation — see [`infra/aws/README.md`](infra/aws/README.md).
+
+#### Azure
+
+To follow. `infra/azure/` is currently a variable-interface stub with no Terraform implementation — see [`infra/azure/README.md`](infra/azure/README.md).
 
 ## Repository Structure
 

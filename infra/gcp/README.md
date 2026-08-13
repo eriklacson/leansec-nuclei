@@ -16,6 +16,14 @@ repo the client owns pins this module by git ref
 Identity Federation — see [`client-repo-template/`](client-repo-template/)
 for that path.
 
+## Getting Started
+
+New to this module? Start with the [end-to-end setup guide](../../docs/setup-guide.md) —
+it walks through bootstrap, `terraform apply`, verification, and troubleshooting for the
+common failure modes. The rest of this document is reference material (prerequisites,
+variables, outputs, flag semantics) for once you're up and running, or for looking up a
+specific value.
+
 ## Prerequisites
 
 1. **gcloud authenticated** — `gcloud auth login` and `gcloud auth application-default login`.
