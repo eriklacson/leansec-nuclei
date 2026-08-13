@@ -45,6 +45,13 @@ resource "google_storage_bucket" "results" {
 # ─── Service Accounts ───
 # scanner: identity Cloud Run runs as; reads config, writes results.
 # scheduler: identity Cloud Scheduler uses to invoke the Cloud Run job.
+# deployer: identity external CI assumes via WIF to run `terraform apply`.
+#
+# scanner and deployer are deliberately separate. The scanner executes
+# third-party Nuclei templates against live targets; the deployer holds
+# project-level admin. Collapsing them would hand admin to the identity
+# running untrusted code. See ADR-008 and decisions recorded in
+# .claude/plan-client-repo-topology-gaps.md.
 
 resource "google_service_account" "scanner" {
   project      = var.project_id
@@ -57,6 +64,16 @@ resource "google_service_account" "scheduler" {
   project      = var.project_id
   account_id   = "${var.client_name}-nuclei-sched"
   display_name = "Nuclei Scheduler (${var.client_name})"
+}
+
+# Created only alongside WIF, because its sole purpose is to be the identity
+# the federated CI assumes. Without enable_wif there is no external caller
+# and no reason for a project-admin SA to exist in the client project.
+resource "google_service_account" "deployer" {
+  count        = var.enable_wif ? 1 : 0
+  project      = var.project_id
+  account_id   = "${var.client_name}-nuclei-deploy"
+  display_name = "Nuclei Deployer (${var.client_name})"
 }
 
 # ─── IAM ───
@@ -72,6 +89,55 @@ resource "google_storage_bucket_iam_member" "scanner_results_write" {
   bucket = google_storage_bucket.results.name
   role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${google_service_account.scanner.email}"
+}
+
+# Deployer roles. This mirrors the list bootstrap-gcp-client.sh:114-120
+# prints for a human principal — same module, same plan, so the same
+# permissions are required. Empty list when enable_wif = false, which
+# leaves google_project_iam_member.deployer_roles with zero instances and
+# its member expression unevaluated.
+#
+# These are project-scoped, not bucket-scoped, and that is not an oversight:
+# `terraform apply` must CREATE the config and results buckets and the
+# scanner/scheduler SAs, which resource-scoped grants cannot authorize.
+# The deployer is therefore near-project-admin. The security boundary this
+# buys is separation from the scanner SA, not a smaller blast radius for CI.
+locals {
+  deployer_roles = var.enable_wif ? [
+    "roles/run.admin",                     # google_cloud_run_v2_job.nuclei
+    "roles/iam.serviceAccountAdmin",       # scanner + scheduler SAs, and its own
+    "roles/iam.serviceAccountUser",        # actAs, to attach the scanner SA to the job
+    "roles/storage.admin",                 # create config + results buckets
+    "roles/cloudscheduler.admin",          # scheduler job, when enable_scheduler
+    "roles/iam.workloadIdentityPoolAdmin", # the pool + provider it authenticates through
+    "roles/artifactregistry.admin",        # AR mirror repo, when enable_ar_mirror
+  ] : []
+}
+
+resource "google_project_iam_member" "deployer_roles" {
+  for_each = toset(local.deployer_roles)
+  project  = var.project_id
+  role     = each.value
+  member   = "serviceAccount:${google_service_account.deployer[0].email}"
+}
+
+# The Terraform state bucket is created by scripts/bootstrap-gcp-client.sh,
+# outside this module. Look it up rather than manage it — adopting it here
+# would put the state file's own lifecycle inside the state it stores.
+# The data source doubles as a plan-time existence check: a wrong bucket
+# name fails here with a clear error instead of at `terraform init` in CI.
+data "google_storage_bucket" "state" {
+  count = var.enable_wif && var.state_bucket_name != "" ? 1 : 0
+  name  = var.state_bucket_name
+}
+
+# objectAdmin covers the GCS backend's read/write of the state object and
+# its lock. Verified only by a live CI run — see Phase 5 of the plan.
+resource "google_storage_bucket_iam_member" "deployer_state_rw" {
+  count  = var.enable_wif && var.state_bucket_name != "" ? 1 : 0
+  bucket = data.google_storage_bucket.state[0].name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.deployer[0].email}"
 }
 
 # ─── Cloud Run Job ───
@@ -165,9 +231,22 @@ resource "google_cloud_scheduler_job" "nuclei" {
 }
 
 # ─── Workload Identity Federation ───
-# Provisioned only when enable_wif = true. Binds GitHub Actions OIDC
-# tokens from var.wif_github_repository to the scanner SA so external CI
-# can trigger jobs without long-lived keys.
+# Provisioned only when enable_wif = true. Binds GitHub Actions OIDC tokens
+# from var.wif_github_repository to the DEPLOYER SA, so a client-owned repo
+# can run `terraform plan`/`apply` against this project without long-lived
+# keys. See ADR-008 for the topology.
+#
+# This binding previously targeted the scanner SA, which holds two bucket
+# grants and no project roles — every workflow step failed against it. The
+# retarget is the fix.
+#
+# Bootstrapping note: CI cannot create the identity it authenticates as.
+# The architect must run one local `terraform apply` after this SA is added
+# before any GitHub Actions run in the client repo can succeed.
+#
+# Lockout risk: the deployer holds workloadIdentityPoolAdmin over the pool
+# that authenticates it, and serviceAccountAdmin over itself. A destructive
+# apply can remove its own access. Recovery is an architect-run local apply.
 
 resource "google_iam_workload_identity_pool" "ci" {
   count                     = var.enable_wif ? 1 : 0
@@ -197,9 +276,9 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   }
 }
 
-resource "google_service_account_iam_member" "wif_scanner_binding" {
+resource "google_service_account_iam_member" "wif_deployer_binding" {
   count              = var.enable_wif ? 1 : 0
-  service_account_id = google_service_account.scanner.name
+  service_account_id = google_service_account.deployer[0].name
   role               = "roles/iam.workloadIdentityUser"
   member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.ci[0].name}/attribute.repository/${var.wif_github_repository}"
 }

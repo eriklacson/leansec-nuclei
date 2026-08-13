@@ -22,8 +22,16 @@ output "scheduler_job_name" {
 }
 
 output "scanner_service_account_email" {
-  description = "Email of the scanner service account"
+  description = "Email of the scanner service account. NOT the identity CI authenticates as — see deployer_service_account_email."
   value       = google_service_account.scanner.email
+}
+
+# This is the value a client sets as the GCP_SA_EMAIL repo variable in their
+# own deployment repo. Null when enable_wif = false, matching the pattern of
+# the WIF and AR outputs below.
+output "deployer_service_account_email" {
+  description = "Email of the deployer service account that external CI assumes via WIF; null when enable_wif = false"
+  value       = var.enable_wif ? google_service_account.deployer[0].email : null
 }
 
 # WIF + AR outputs are conditionally populated so private deployments can

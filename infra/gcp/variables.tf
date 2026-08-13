@@ -86,7 +86,7 @@ variable "enable_scheduler" {
 }
 
 variable "enable_wif" {
-  description = "Provision Workload Identity Federation pool, provider, and SA binding for external CI access. Requires wif_github_repository when true."
+  description = "Provision Workload Identity Federation pool, GitHub OIDC provider, a dedicated deployer service account with project-admin roles, and the binding that lets wif_github_repository assume it. Enables the client-owned repo topology (ADR-008), where CI runs terraform plan/apply. Requires wif_github_repository when true."
   type        = bool
   default     = false
 }
@@ -102,7 +102,17 @@ variable "enable_ar_mirror" {
 # Actions OIDC; other issuers are out of scope for this revision.
 
 variable "wif_github_repository" {
-  description = "GitHub repository (owner/repo) authorized to assume the scanner SA via WIF. Required when enable_wif = true."
+  description = "GitHub repository (owner/repo) authorized to assume the deployer SA via WIF. Required when enable_wif = true."
+  type        = string
+  default     = ""
+}
+
+# The Terraform state bucket is created by scripts/bootstrap-gcp-client.sh,
+# not by this module, so its name has to be passed in for the deployer to be
+# granted access to it. Leave empty to skip the grant — appropriate when the
+# state backend lives outside this project or is managed by other means.
+variable "state_bucket_name" {
+  description = "Name of the GCS bucket holding this deployment's Terraform state. When set alongside enable_wif, the deployer SA is granted objectAdmin on it so CI can run terraform init. Defaults to <project_id>-tfstate-leansecurity-nuclei in the bootstrap script; pass that name here."
   type        = string
   default     = ""
 }
