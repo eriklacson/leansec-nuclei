@@ -400,8 +400,13 @@ values back from Terraform and hand them to the client:
 
 ```bash
 terraform output wif_provider_name
-terraform output scanner_service_account_email
+terraform output deployer_service_account_email
 ```
+
+`deployer_service_account_email`, **not** `scanner_service_account_email` — the scanner SA
+only has bucket read/write on the config and results buckets and cannot run Terraform.
+Confusing the two was the exact bug that made this topology non-functional at first release
+(see [ADR-008's Corrections section](../../../decisions/ADR-008-per-client-repo-topology.md#corrections-2026-08-13)).
 
 Print this to the operator, with the actual values substituted in, to relay to the client:
 
@@ -409,28 +414,36 @@ Print this to the operator, with the actual values substituted in, to relay to t
 ## Hand off to the client repo
 
 The client's repo (<owner>/<repo>, from features.wif_github_repository) can now authenticate
-to this GCP project via Workload Identity Federation. Send the client these values — they are
-not secrets, but they are specific to this deployment:
+to this GCP project via Workload Identity Federation. Send the client these two repo
+variables — they are not secrets, but they are specific to this deployment:
 
   GCP_WIF_PROVIDER = <terraform output wif_provider_name>
-  GCP_SA_EMAIL      = <terraform output scanner_service_account_email>
-  GCP_PROJECT_ID    = <gcp_project_id>
-  GCP_REGION        = <region>
-  GCP_CLIENT_NAME   = <client_name>
+  GCP_SA_EMAIL      = <terraform output deployer_service_account_email>
 
-The client sets these as repository variables (not secrets — none of these values grant
-access on their own without the WIF trust binding, which is scoped to their exact repo name):
+The client sets these as repository variables (not secrets — neither value grants access on
+its own without the WIF trust binding, which is scoped to their exact repo name):
 
   gh variable set GCP_WIF_PROVIDER --body "<wif_provider_name>"
-  gh variable set GCP_SA_EMAIL     --body "<scanner_service_account_email>"
-  gh variable set GCP_PROJECT_ID   --body "<gcp_project_id>"
-  gh variable set GCP_REGION       --body "<region>"
-  gh variable set GCP_CLIENT_NAME  --body "<client_name>"
+  gh variable set GCP_SA_EMAIL     --body "<deployer_service_account_email>"
+
+That is the complete list of repo variables the client's workflows read — nothing else goes
+through `gh variable set`.
+
+Everything else is a `terraform.tfvars` value in the client's copy of the template, and must
+match **exactly** what this apply used: `project_id`, `client_name`, `region`, the pinned
+scanner image tag, `enable_scheduler`, `enable_ar_mirror`, `schedule_cron`,
+`schedule_timezone`. These four flags are not optional to hand off — the client repo is a
+second Terraform root writing the same state, and any of them left at the template's
+placeholder gets reverted to the module default on the client's first CI apply.
+`enable_ar_mirror` is the destructive one: if this apply enabled an Artifact Registry mirror
+and the client repo doesn't also set it, the client's first CI apply deletes that mirror and
+every image in it. The state bucket name is not a separate handoff value — the client
+template derives it from `project_id`.
 
 Then the client copies infra/gcp/client-repo-template/ (this repo, leansec-nuclei) into their
-own repo if they haven't already, fills terraform.tfvars with the SAME project_id/client_name
-used in this apply (see the warning in that repo's main.tf — mismatched values orphan these
-resources rather than adopting them), and pushes to main.
+own repo if they haven't already, fills terraform.tfvars with the values above (see the
+warning in that repo's main.tf — mismatched values orphan these resources rather than
+adopting them), and pushes to main.
 
 From this point on, config changes (targets.txt, profiles.yaml) and redeployments happen via
 PR → merge on the client's own repo. Re-running this skill against the local deployment.yaml
@@ -438,7 +451,7 @@ still works, but the client's repo has become the primary path going forward.
 ```
 
 - **Success:** Operator has the exact values to relay; client can complete their own setup
-  without coming back to the architect for anything except these five values.
+  without coming back to the architect for anything except these values.
 - **Failure:** `terraform output` returns null for `wif_provider_name` — `enable_wif` was
   false for this apply. Re-run with `enable_wif: true` and `wif_github_repository` set.
 

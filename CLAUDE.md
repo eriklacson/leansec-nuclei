@@ -111,10 +111,10 @@ terraform apply
 ## CI/CD
 
 - `.github/workflows/ci.yaml`: Black + Ruff + Bandit + pytest on every push/PR to main — always active
-- `infra/gcp/workflows/scanner-image.yml`: Builds and pushes Docker image to GCP Artifact Registry when `docker/` or `scanner/profiles/` changes
-- `infra/gcp/workflows/deploy.yml`: Terraform plan on PR, apply on merge, auto-discovered per client in `deployments/`
+- `.github/workflows/publish-image.yaml`: Builds the scanner image and pushes to GHCR (`ghcr.io/eriklacson/leansec-nuclei`) on push to `main` touching `docker/`/`scanner/`, and on `v*` tags — always active
 
-Cloud vendor workflows live under `infra/<vendor>/workflows/` and must be manually copied to `.github/workflows/` to activate. This prevents accidental deploys when no cloud deployment is intended.
+This public repo's own CI never runs `terraform apply` against a client project, under either deployment topology (see `docs/gcp_architecture.md`). The client-owned repo topology (ADR-008) ships a *template* pair —
+`infra/gcp/client-repo-template/.github/workflows/{deploy,plan}.yml` — that is copied out of this repo into a **private repo the client owns**, not into this repo's own `.github/workflows/`. Once there, it runs `terraform apply`/`plan` as the client's own CI, authenticated via Workload Identity Federation.
 
 ## Stack Conventions
 - Python: Poetry (tooling only — no Python source code currently)

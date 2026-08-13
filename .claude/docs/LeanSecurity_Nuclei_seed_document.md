@@ -1,8 +1,8 @@
 # # LeanSecurity — Nuclei
-## Project Seed Document v1.4
+## Project Seed Document v1.6
 **Classification:** LeanSecurity Internal IP
-**Status:** Container layer rebuilt under ADR-007 (May 2026); scanner layer Python; normalized JSON output wrapped in v1 envelope (May 2026); Month 1 build complete
-**Last updated:** May 2026
+**Status:** Container layer rebuilt under ADR-007 (May 2026); scanner layer Python; normalized JSON output wrapped in v1 envelope (May 2026); client-owned repo topology added under ADR-008 and its IAM gaps fixed (August 2026); Month 1 build complete
+**Last updated:** August 2026
 
 ---
 
@@ -244,7 +244,7 @@ Consumed by `docker/entrypoint.sh`. Not used in local CLI mode. Set by `docker r
 
 The container's bash wrapper invokes `python /app/scanner/scan.py ${CLIENT}` after cloud I/O setup completes. The `scan.py` execution inside the container is identical to local CLI execution: same code path, same profile parsing, same output shape (raw JSONL plus consolidated `result-YYYY-MM-DD.json`). The container is a deployment vehicle for `scan.py`, not a separate implementation.
 
-`profiles.yaml` is baked into the image at build time. The image rebuild on `scanner/profiles/**` change is wired in `infra/gcp/workflows/scanner-image.yml`. Runtime profile download (the v1.1 `PROFILES_PATH` env var) was removed in v1.2 — see ADR-007.
+`profiles.yaml` is baked into the image at build time. The image rebuild on `scanner/profiles/**` change is wired in `.github/workflows/publish-image.yaml`. Runtime profile download (the v1.1 `PROFILES_PATH` env var) was removed in v1.2 — see ADR-007.
 
 ### Terraform Module Variables — GCP (Escalation 2)
 
@@ -265,6 +265,11 @@ Consumed by client deployment `main.tf`. Not used in local CLI or local Docker m
 | `job_memory` | `string` | No | `2Gi` | Container memory allocation. |
 | `job_cpu` | `string` | No | `1` | Container CPU allocation. |
 | `job_timeout` | `string` | No | `3600s` | Container execution timeout. |
+| `enable_scheduler` | `bool` | No | `true` | Provision Cloud Scheduler job + scheduler SA + invoker IAM binding. |
+| `enable_wif` | `bool` | No | `false` | Provision a deployer SA, WIF pool, GitHub OIDC provider, and the assume binding (client-owned CI topology, ADR-008). Requires `wif_github_repository`. |
+| `enable_ar_mirror` | `bool` | No | `false` | Provision an Artifact Registry repository mirroring the GHCR image. |
+| `wif_github_repository` | `string` | Cond. | `""` | GitHub `owner/repo` authorized to assume the deployer SA via WIF. Required when `enable_wif = true`. |
+| `state_bucket_name` | `string` | No | `""` | GCS bucket holding this deployment's Terraform state. When set alongside `enable_wif`, grants the deployer `objectAdmin` on it (defense-in-depth alongside `storage.admin`). |
 
 ### Terraform Module Outputs — GCP
 
@@ -273,8 +278,12 @@ Consumed by client deployment `main.tf`. Not used in local CLI or local Docker m
 | `config_bucket_name` | `string` | Name of the config storage bucket. |
 | `results_bucket_name` | `string` | Name of the results storage bucket. |
 | `cloud_run_job_name` | `string` | Name of the Cloud Run job. |
-| `scheduler_job_name` | `string` | Name of the scheduler job. |
-| `scanner_service_account_email` | `string` | Email of the scanner service account. |
+| `scheduler_job_name` | `string \| null` | Name of the scheduler job; `null` when `enable_scheduler = false`. |
+| `scanner_service_account_email` | `string` | Email of the scanner service account. Not the CI identity. |
+| `deployer_service_account_email` | `string \| null` | Email of the deployer SA that client CI assumes via WIF; `null` when `enable_wif = false`. This is the client's `GCP_SA_EMAIL`. |
+| `wif_pool_name` | `string \| null` | Full resource name of the WIF pool; `null` when `enable_wif = false`. |
+| `wif_provider_name` | `string \| null` | Full resource name of the WIF GitHub provider; `null` when `enable_wif = false`. |
+| `artifact_registry_repository` | `string \| null` | Full resource name of the mirrored AR repository; `null` when `enable_ar_mirror = false`. |
 
 ### Design Rules
 
@@ -314,20 +323,15 @@ leansecurity-nuclei/
 │   │   ├── main.tf
 │   │   ├── variables.tf
 │   │   ├── outputs.tf
-│   │   ├── workflows/                ← GCP-specific CI/CD (copy to .github/workflows/ to activate)
+│   │   ├── _example/                 ← Template for architect-run topology (topology 1)
+│   │   ├── client-repo-template/     ← Template for client-owned CI topology (topology 2, ADR-008) — copied to a private repo the CLIENT owns, not to this repo's .github/workflows/
 │   │   └── README.md
 │   ├── aws/                          ← Stubbed (README only)
 │   └── azure/                        ← Stubbed (README only)
 │
-├── deployments/                      ← Per-client config (used by ALL modes)
-│   ├── _example/                     ← Template with REPLACE placeholders
-│   │   ├── main.tf                   ← Escalation 2 only
-│   │   ├── backend.tf                ← Escalation 2 only
-│   │   ├── terraform.tfvars          ← Escalation 2 only
-│   │   ├── targets.txt               ← Used by ALL modes
-│   │   └── README.md
-│   └── <client>/                     ← Per-client deployment
-│       ├── main.tf                   ← Escalation 2 only
+├── deployments/                      ← Per-client config (used by ALL modes, gitignored, no _example/ here)
+│   └── <client>/                     ← Per-client deployment, created by copying the mode-specific template
+│       ├── main.tf                   ← Escalation 2 only (copied from infra/gcp/_example/)
 │       ├── backend.tf                ← Escalation 2 only
 │       ├── terraform.tfvars          ← Escalation 2 only
 │       └── targets.txt               ← Used by ALL modes
@@ -359,8 +363,8 @@ leansecurity-nuclei/
 - The container does not download `profiles.yaml` at runtime. Profiles are baked into the image at build time.
 - `infra/<cloud>/` modules never reference client names or hardcode deployment values. All client-specific configuration comes through variables.
 - `deployments/<client>/` calls exactly one `infra/<cloud>/` module (cloud mode only). In local CLI mode, only `targets.txt` is read — all other files in the deployment folder are ignored.
-- `deployments/_example/` is never deployed. The CI/CD workflow excludes directories starting with `_` from the deployment matrix.
-- Cloud vendor CI/CD workflows live under `infra/<vendor>/workflows/` and must be manually copied to `.github/workflows/` to activate. This prevents accidental deploys when no cloud deployment is intended.
+- `infra/gcp/_example/` and `infra/gcp/client-repo-template/` are never deployed from in place. The former is copied into `deployments/<client>/` on this checkout; the latter is copied into a private repo the client owns.
+- This public repo's own CI/CD never runs `terraform apply` against a client project, under either topology (see `docs/gcp_architecture.md`). `infra/gcp/client-repo-template/.github/workflows/{deploy,plan}.yml` is a template that becomes the client's own CI once copied to their repo — it is never copied into this repo's `.github/workflows/`.
 
 ### Language Policy
 
@@ -389,7 +393,7 @@ Application runtime code is Python. Adding new shell scripts to `scanner/` is pr
 | `tests/test_nuclei_helpers.py` | Unit tests for helpers module | Complete |
 | `tests/test_nuclei_json_converter.py` | Unit tests for the v1 envelope contract | Complete |
 | `tests/test_upload_to_gcs.py` | Unit tests for the GCS upload helper | Complete |
-| `deployments/_example/targets.txt` | Template target list with placeholder comments | Complete |
+| `scanner/_example/targets.txt` | Template target list with placeholder comments | Complete |
 | `pyproject.toml`, `poetry.lock` | Python dependency management (Python 3.12, pyyaml, dev tooling) | Complete |
 | `.pre-commit-config.yaml` | Black, Ruff, Bandit, pytest pre-commit hooks | Complete |
 | `.github/workflows/ci.yaml` | Always-active CI — Black + Ruff + Bandit + pytest | Complete |
@@ -411,12 +415,13 @@ Application runtime code is Python. Adding new shell scripts to `scanner/` is pr
 | Component | Source/Domain | Status |
 |---|---|---|
 | `docker/Dockerfile` | Full image — Nuclei + cloud CLIs (gcloud) | Complete |
-| `infra/gcp/` | Terraform module — Cloud Run, Scheduler, GCS, IAM | Complete |
-| `infra/gcp/workflows/scanner-image.yml` | CI/CD — build + push Docker image to Artifact Registry (copy to `.github/workflows/` to activate) | Complete |
-| `infra/gcp/workflows/deploy.yml` | CI/CD — terraform plan on PR, apply on merge (copy to `.github/workflows/` to activate) | Complete |
+| `infra/gcp/` | Terraform module — Cloud Run, Scheduler, GCS, IAM, deployer SA + WIF (`enable_wif`) | Complete |
+| `.github/workflows/publish-image.yaml` | CI/CD — build + push scanner image to GHCR on `main`/tag push (public repo, always active) | Complete |
+| `infra/gcp/client-repo-template/.github/workflows/{deploy,plan}.yml` | CI/CD template — terraform apply on push to main / plan on PR, WIF-only auth (copied into a private repo the client owns, per ADR-008; never activated in this repo) | Complete |
 | `infra/aws/` | Terraform module — ECS Fargate, EventBridge, S3, IAM | Planned |
 | `infra/azure/` | Terraform module — Container Apps, Logic Apps, Blob, MI | Planned |
-| `deployments/_example/*.tf` | Template Terraform config with placeholders | Complete |
+| `infra/gcp/_example/*.tf` | Template Terraform config with placeholders (topology 1) | Complete |
+| `infra/gcp/client-repo-template/` | Template client-owned deployment repo, incl. Terraform, workflows, README (topology 2, ADR-008) | Complete |
 
 ---
 
@@ -456,17 +461,19 @@ New profiles must include a `csf_subcategory` mapping in `profiles.yaml`. Contro
 
 ### Adding a new client
 
-1. Copy `deployments/_example/` to `deployments/<client>/`
+1. Copy the mode-specific template into `deployments/<client>/` — `scanner/_example/` (Local CLI), `docker/_example/` (Local Docker), or `infra/gcp/_example/` (Cloud/GCP, topology 1)
 2. Populate `targets.txt` with the client's external target list
 3. If cloud mode: update `terraform.tfvars`, `backend.tf`, `main.tf`
 4. Validate: `poetry run python scanner/scan.py <client>` executes without errors
+
+For the client-owned CI topology (ADR-008) instead of topology 1's step 3, see `infra/gcp/client-repo-template/README.md`'s handoff sequence.
 
 ### Adding a new scan profile
 
 1. Add profile definition to `scanner/profiles/profiles.yaml` with `csf_subcategory` mapping
 2. `scan.py` picks up the new profile automatically — no Python changes required (`load_profiles` iterates the dict)
 3. Validate locally: `poetry run python scanner/scan.py <client>`, verify new JSONL file appears in results
-4. If container/cloud mode is in use: rebuild the image so the updated `profiles.yaml` is baked in (CI workflow `infra/gcp/workflows/scanner-image.yml` triggers automatically on `scanner/profiles/**` changes)
+4. If container/cloud mode is in use: rebuild the image so the updated `profiles.yaml` is baked in (CI workflow `.github/workflows/publish-image.yaml` triggers automatically on `scanner/profiles/**` changes)
 
 Under ADR-007, the profile-sync surface is gone entirely. `profiles.yaml` is the only place profiles are defined; the container invokes the same `scan.py` the local CLI runs.
 
@@ -476,8 +483,8 @@ Under ADR-007, the profile-sync surface is gone entirely. `profiles.yaml` is the
 2. Accept the same required variables as `infra/gcp/`
 3. Add the vendor's case block to `docker/entrypoint.sh` (`download_config` and `upload_results`)
 4. Add cloud CLI installation to `docker/Dockerfile` if not already present
-5. Add CI/CD workflows under `infra/<vendor>/workflows/` (not `.github/workflows/` — those are GCP-only by default)
-6. Update `deployments/_example/` with a note about the new vendor option
+5. Add a vendor CI/CD workflow template under `infra/<vendor>/`, following the GCP pattern: `_example/` for architect-run topology, a `client-repo-template/` equivalent if the vendor supports client-owned CI. Neither goes in this repo's own `.github/workflows/`.
+6. Update `infra/<vendor>/_example/` with a note about the new vendor option
 
 ### Modifying scan behavior
 
@@ -585,3 +592,5 @@ The following three decisions were locked as part of the `gcp-cloud-deploy` feat
 | 1.2 | May 2026 | ADR-007 integrated. Container layer rebuilt: `python:3.12-slim` base, Nuclei binary at pinned version (`NUCLEI_VERSION` build arg), `scan.py` invoked from a thin bash wrapper. The "container is bash-only" v1.1 decision is reversed. The "drift between profiles.yaml and entrypoint.sh is a bug" v1.1 decision is replaced by structural elimination of the drift surface — `profiles.yaml` is now the single source of truth with no parallel hardcoded copy. `PROFILES_PATH` env var removed; profiles bake into the image. `CLIENT` env var now required at entrypoint. `UPDATE_TEMPLATES` env var added. Profile output stems normalized to canonical names (`identity_remote_access`, `transport_security`, `owasp_top10_core`). |
 | 1.3 | May 2026 | Normalized JSON Output wrapped in a versioned envelope (sprint `update/normalize_json_wrapper`). §3 §"Normalized JSON Output" rewritten: the consolidated `result-YYYY-MM-DD.json` is now a single JSON document with `schema_version` (integer; sourced from `nuclei_json_converter.SCHEMA_VERSION = 1`), `scan_run.{client, run_date, profiles_executed, findings_count}`, and `findings[]`. The previous bare-array shape is retired with no backward-compat mode. Finding object shape is unchanged. Envelope construction lives in `scanner/nuclei_json_converter.build_normalized_document(...)`; profile-name derivation from JSONL filenames lives in `list_executed_profiles(...)`. Both `scanner/scan.py` and `scanner/nuclei_convert_tool.py` emit the envelope. Out of scope (deferred): `scan_started_at` / `scan_completed_at` / `scanner_version` fields, consumer-direction schema validation. |
 | 1.4 | May 2026 | `gcp-cloud-deploy` feature activated. Public-repo / private-deployments topology locked (three new entries in §10). GCP Terraform module rewritten with `enable_scheduler`, `enable_wif`, `enable_ar_mirror` flags; provider pinned to `google ~> 6.0` (versions.tf added); env blocks on `google_cloud_run_v2_job` rewritten multi-line. Scanner image distribution moved to GHCR (`ghcr.io/leansecurity/leansec-nuclei`) via new `.github/workflows/publish-image.yaml` (three-tag scheme: latest / short-sha / semver). Old `infra/gcp/workflows/{deploy,scanner-image}.yml` removed. Bootstrap script added at `scripts/bootstrap-gcp-client.sh`. `deployments/_example/` refreshed to call the module via a Git source ref. `deployments/mdi/` placeholder removed; `.gitignore` cleaned up. Module reference, architecture distillation, and end-to-end setup guide added under `docs/` and `infra/gcp/`. |
+| 1.5 | August 2026 | Client-owned private repo added as a second GCP deployment topology (ADR-008, PR #16–#18): `infra/gcp/client-repo-template/` templates a private repo the client owns, with `deploy.yml`/`plan.yml` running `terraform apply`/`plan` under Workload Identity Federation. Only the operator-facing path (setup guide, skill docs) and one seed-doc sentence were updated at merge time — the architecture doc, root README, CLAUDE.md, and this document's own module tables were not. |
+| 1.6 | August 2026 | ADR-008 gap-fix pass (`.claude/tasks/client-repo-topology-gaps.md`). The client-owned topology could not actually run as documented: WIF bound the scanner SA (two bucket bindings) to a workflow needing project-admin Terraform access, and the pinned module `?ref=v1.2.3` never existed as a tag. Fixed: dedicated `deployer` SA with least-privilege separation from the scanner SA (`enable_wif` now provisions it); two-tag release (`v1.1.0` module, `v1.1.1` template) so the pin resolves; `region`/`enable_scheduler`/`enable_ar_mirror`/`schedule_cron`/`schedule_timezone` plumbed as required passthrough variables between the bootstrap module and the client template (previously silently drifted, `enable_ar_mirror` destructively); redundant GCS sync step removed from `deploy.yml`. Full doc reconciliation across `docs/gcp_architecture.md`, root `README.md`, `CLAUDE.md`, this document, `docs/setup-guide.md`, `gcp-deploy` SKILL.md, and ADR-008's own Corrections section. |

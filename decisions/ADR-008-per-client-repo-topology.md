@@ -107,3 +107,46 @@ name both topologies; that line-level doc edit ships alongside this ADR.
   time.** If a client transfers or renames their repo, the WIF binding breaks silently
   until the architect re-runs bootstrap with the new name — no automated reconciliation
   exists.
+
+## Corrections (2026-08-13)
+
+A static review after this ADR merged (`.claude/report-gha-topology-doc-review.md`,
+`.claude/tasks/client-repo-topology-gaps.md`) found the topology described above **could
+not actually run**. Fixed on `component/gcp-update-via-actions`; corrections below, not a
+new decision.
+
+- **The WIF binding described in "Decision" (item 2, `enable_wif` / `wif_github_repository`)
+  bound the *scanner* service account**, not a distinct CI identity. The scanner SA's
+  complete grant set was two bucket bindings (`objectViewer` on the config bucket,
+  `objectAdmin` on results) — no project-level roles, no state-bucket access. Every step of
+  `deploy.yml`/`plan.yml` (`terraform init`, `terraform apply`) failed on first run.
+  **Fixed:** `enable_wif` now provisions a dedicated `deployer` service account, separate
+  from the scanner SA, with the seven project-level roles CI actually needs
+  (`run.admin`, `iam.serviceAccountAdmin`, `iam.serviceAccountUser`, `storage.admin`,
+  `cloudscheduler.admin`, `iam.workloadIdentityPoolAdmin`, `artifactregistry.admin`). The
+  WIF trust binding now targets this deployer SA. See `infra/gcp/README.md#enable_wif`.
+- **`infra/gcp/client-repo-template/main.tf` pinned `?ref=v1.2.3`, a tag that never
+  existed** in this repo — `terraform init` failed with an invalid-ref error before
+  reaching anything else. **Fixed:** two-tag release. `v1.1.0` tags the commit containing
+  the deployer-SA fix above; the template's `?ref=` was updated to point at it and that
+  commit tagged `v1.1.1`. Clients copy the template from `v1.1.1`.
+- **The "GCS config sync... on merge to `main`" step named in "Decision" (item 2) was a
+  no-op re-upload**, not the mechanism by which config reached GCS. The module already
+  manages `targets.txt`/`profiles.yaml` as Terraform-managed bucket objects; the preceding
+  `terraform apply` in the same workflow run had already uploaded both. The sync step was a
+  second, redundant writer to a Terraform-managed resource. **Fixed:** removed from
+  `deploy.yml`. Config reaches GCS through `terraform apply` alone, on both topologies.
+- **`region`, `enable_scheduler`, `enable_ar_mirror`, `schedule_cron`, and
+  `schedule_timezone` were not plumbed as passthrough variables** between the architect's
+  bootstrap module invocation and the client template's module invocation — two separate
+  Terraform roots writing the same remote state. Any of these left at the client template's
+  default silently reverted it on the client's first CI apply. `enable_ar_mirror` reverting
+  is destructive: it deletes the Artifact Registry mirror and every image in it. **Fixed:**
+  all five are now required variables (no default) on the client template, matching what
+  the architect's bootstrap apply actually used — an unset value fails `terraform plan`
+  instead of silently reverting on `terraform apply`.
+
+None of the above changes the decision itself — both topologies still coexist, the module
+is still consumed by relative path or pinned ref without forking, and WIF is still the only
+auth mechanism for topology 2. This section corrects what "Decision" claimed the mechanism
+already did, which turned out not to be true until this fix pass.

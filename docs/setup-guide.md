@@ -263,11 +263,24 @@ they don't need anything else from you after this:
 
 ```bash
 terraform output wif_provider_name
-terraform output scanner_service_account_email
+terraform output deployer_service_account_email
 ```
 
-Give the client `wif_provider_name`, `scanner_service_account_email`, `project_id`, `region`,
-and `client_name`. From here the client follows
+`deployer_service_account_email` is the value to hand off, **not**
+`scanner_service_account_email` — the scanner SA only has bucket read/write on the config
+and results buckets, and cannot run Terraform. Confusing the two is the exact bug that made
+this topology non-functional at first release; see
+[ADR-008's Corrections section](../decisions/ADR-008-per-client-repo-topology.md#corrections-2026-08-13).
+
+Give the client: `wif_provider_name`, `deployer_service_account_email` (their `GCP_SA_EMAIL`
+repo variable), `project_id`, `client_name`, `region`, the pinned scanner image tag, and —
+**exactly as applied here** — `enable_scheduler`, `enable_ar_mirror`, `schedule_cron`,
+`schedule_timezone`. These four flags are not optional to hand off: the client repo is a
+second Terraform root writing the same state, and any of them left at the template's
+placeholder gets reverted to the module default on the client's first CI apply.
+`enable_ar_mirror` is the destructive one — reverting it deletes the Artifact Registry
+mirror and every image in it. The state bucket name is *not* a separate handoff value; the
+client template derives it from `project_id`. From here the client follows
 [`infra/gcp/client-repo-template/README.md`](../infra/gcp/client-repo-template/README.md) to
 scaffold their own repo; their GitHub Actions take over `terraform apply` on future changes.
 You still complete Steps 9–11 below once, to confirm this first apply actually worked.

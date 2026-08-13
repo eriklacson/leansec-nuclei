@@ -246,7 +246,12 @@ workstreams:
         scanner_image_default: ghcr.io/leansecurity/leansec-nuclei:latest  # placeholder; production deployments must pin
         preserved_interface:
           - "Required variables: project_id, client_name, scanner_image, targets_file"
-          - "Outputs: config_bucket_name, results_bucket_name, cloud_run_job_name, scheduler_job_name (null when scheduler disabled), scanner_service_account_email"
+          - "Outputs (at B3 completion): config_bucket_name, results_bucket_name, cloud_run_job_name, scheduler_job_name (null when scheduler disabled), scanner_service_account_email"
+          # ADR-008 (client-owned repo topology, later feature) added four more outputs not
+          # present at B3 completion: deployer_service_account_email, wif_pool_name,
+          # wif_provider_name, artifact_registry_repository. Current full list lives in
+          # infra/gcp/README.md's Outputs table, not here — this entry is a historical
+          # record of what B3 itself delivered.
         acceptance:
           - "`terraform validate` passes"
           - "`terraform fmt -check` passes"

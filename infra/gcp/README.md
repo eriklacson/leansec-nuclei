@@ -5,10 +5,16 @@ buckets (config + results), service accounts, IAM bindings, and optional
 Workload Identity Federation and Artifact Registry mirror for the
 LeanSecurity Nuclei scanner pipeline.
 
-The module is consumed from a per-client deployment folder at
-`deployments/<client>/` inside the repo checkout (gitignored).
-Copy `_example/` as the starting point. Architects run `terraform apply`
-from their workstation; the public repository does not hold cloud credentials.
+The module is consumed two ways. By default, from a per-client deployment
+folder at `deployments/<client>/` inside this repo checkout (gitignored) —
+copy [`_example/`](_example/) as the starting point; the architect runs
+`terraform apply` from their workstation, and the public repository never
+holds cloud credentials. Alternatively, under the client-owned repo topology
+([ADR-008](../../decisions/ADR-008-per-client-repo-topology.md)), a private
+repo the client owns pins this module by git ref
+(`?ref=vX.Y.Z`) and applies it from the client's own CI via Workload
+Identity Federation — see [`client-repo-template/`](client-repo-template/)
+for that path.
 
 ## Prerequisites
 

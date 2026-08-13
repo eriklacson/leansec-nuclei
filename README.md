@@ -14,7 +14,7 @@ Automated Nuclei scans against external assets. Three deployment modes share the
 
 ### Operating model — public repo, private deployments
 
-This repository contains the reusable pipeline (scanner core, container, GCP module). **Per-client deployment configuration lives in client-controlled storage outside this repo.** `terraform apply` is run from an architect's workstation against the client GCP project; the public-repo CI never holds GCP credentials and never touches client infrastructure.
+This repository contains the reusable pipeline (scanner core, container, GCP module). **Per-client deployment configuration lives in client-controlled storage outside this repo.** By default, `terraform apply` is run from an architect's workstation against the client GCP project; the public-repo CI never holds GCP credentials and never touches client infrastructure. A second topology exists for clients who want ongoing changes to go through their own CI instead of the architect: a private repo the client owns applies the same Terraform module via Workload Identity Federation. See [ADR-008](decisions/ADR-008-per-client-repo-topology.md) and [`docs/gcp_architecture.md`](docs/gcp_architecture.md) for both.
 
 The scanner image is distributed via GitHub Container Registry: [`ghcr.io/eriklacson/leansec-nuclei`](https://ghcr.io/eriklacson/leansec-nuclei). Production deployments pin to a semver tag.
 
@@ -117,7 +117,7 @@ Expect hits from `baseline_web`, `owasp_top10_core`, and `transport_security` pr
 
 ## Cloud Deployment (GCP)
 
-Cloud-automated deployment runs the scanner as a Cloud Run job on a Cloud Scheduler cadence. The pipeline is architect-driven: an architect runs `terraform apply` from their workstation against the client GCP project; after that, Cloud Scheduler triggers the job autonomously.
+Cloud-automated deployment runs the scanner as a Cloud Run job on a Cloud Scheduler cadence. By default the pipeline is architect-driven: an architect runs `terraform apply` from their workstation against the client GCP project; after that, Cloud Scheduler triggers the job autonomously. Once provisioned, a client can instead own ongoing Terraform changes from their own private repo's CI ([ADR-008](decisions/ADR-008-per-client-repo-topology.md), [`infra/gcp/client-repo-template/`](infra/gcp/client-repo-template/)) — the sections below cover the architect-driven path.
 
 ### Skill-assisted deployment (recommended)
 
@@ -164,8 +164,10 @@ leansecurity-nuclei/
 ├── scripts/                    # Operator scripts (bootstrap-gcp-client.sh)
 ├── scanner/_example/           # Local CLI deployment template
 ├── docker/_example/            # Local Docker deployment template
-├── infra/gcp/_example/         # GCP deployment template
+├── infra/gcp/_example/         # GCP deployment template (architect-run topology)
+├── infra/gcp/client-repo-template/ # GCP deployment template (client-owned CI topology, ADR-008)
 ├── docs/                       # Architecture + setup guide
+├── decisions/                  # Architecture decision records (ADRs)
 └── .github/workflows/          # CI (lint/test) + publish-image (GHCR)
 ```
 

@@ -4,7 +4,9 @@ How the cloud-automated tier of the `leansecurity-nuclei` pipeline runs on GCP, 
 
 ## 1. Context and intent
 
-The pipeline runs Nuclei against external client assets on a monthly cadence, writes JSONL into client-controlled cloud storage, and exits. The container is ephemeral; the schedule is in GCP; the operator is the architect. `leansecurity-nuclei` itself is published as an open-source pipeline. Per-client deployment configuration is *not* in this repository.
+The pipeline runs Nuclei against external client assets on a monthly cadence, writes JSONL into client-controlled cloud storage, and exits. The container is ephemeral; the schedule is in GCP. `leansecurity-nuclei` itself is published as an open-source pipeline. Per-client deployment configuration is *not* in this repository.
+
+Two deployment topologies share the same Terraform module (`infra/gcp/`): the architect runs `terraform apply` from a local workstation against a deployment folder in this repo checkout (the default), or the client owns a private repo whose own CI applies the same module under Workload Identity Federation ([ADR-008](../decisions/ADR-008-per-client-repo-topology.md)). §2 describes both.
 
 ## 2. Operating model — open-source pipeline, client-hosted deployments
 
@@ -12,7 +14,7 @@ The pipeline runs Nuclei against external client assets on a monthly cadence, wr
 
 This repository is public. It contains the reusable scanning pipeline: scanner, container image build, Terraform module, documentation. It contains **zero client-identifying data**.
 
-Per-client deployment configuration — Terraform `tfvars`, target lists, backend configuration — lives in `deployments/<client>/` inside the repo checkout, but is gitignored. No client-identifying files are ever committed. [`infra/gcp/_example/`](../infra/gcp/_example/) is the template operators copy to start a new deployment.
+Per-client deployment configuration — Terraform `tfvars`, target lists, backend configuration — lives either in `deployments/<client>/` inside this repo checkout (gitignored, architect-run topology) or in a private repo the client owns (client-owned CI topology, ADR-008). No client-identifying files are ever committed to this repo under either topology. [`infra/gcp/_example/`](../infra/gcp/_example/) is the template for the former; [`infra/gcp/client-repo-template/`](../infra/gcp/client-repo-template/) is the template for the latter.
 
 This is the standard shape for an open-source consulting product: the public repo publishes the module; consumers reference it from private workspaces. Terraform's own ecosystem works exactly this way (`terraform-aws-modules`, `cdk-patterns`, etc.).
 
@@ -23,13 +25,15 @@ automation layer over this operating model. It reads a high-level `deployment.ya
 validates it, renders the Terraform inputs described in this document, and orchestrates
 `terraform init`, `plan`, and `apply` with operator confirmation in chat. The skill
 invokes the same `infra/gcp/` module described here — it does not bypass or replace it.
-The architecture is unchanged; the skill is purely a *how*, not a *what*.
+The architecture is unchanged; the skill is purely a *how*, not a *what*. It also performs the architect's one-time bootstrap apply in the client-owned topology below — it is not exclusive to the architect-run topology.
 
-### The operator is the architect, not CI
+### Two topologies: who runs `terraform apply`
 
-LeanSecurity GitHub Actions does not run `terraform apply` against any client project. The architect runs Terraform from a local workstation, authenticated as themselves via `gcloud auth application-default login`, with per-engagement scoping. The repo's CI runs lint, test, and image publishing — nothing else touches GCP.
+**Topology 1 — architect-run (default).** LeanSecurity GitHub Actions does not run `terraform apply` against any client project. The architect runs Terraform from a local workstation, authenticated as themselves via `gcloud auth application-default login`, with per-engagement scoping. The repo's CI runs lint, test, and image publishing — nothing else touches GCP. Once provisioned, each client's scanner runs autonomously inside the client's GCP project on a Cloud Scheduler cadence; the architect's involvement ends with `terraform apply`. GCP itself closes the operational loop for scan execution.
 
-Once provisioned, each client's scanner runs autonomously inside the client's GCP project on a Cloud Scheduler cadence. The architect's involvement ends with `terraform apply`. GCP itself closes the operational loop.
+**Topology 2 — client-owned CI ([ADR-008](../decisions/ADR-008-per-client-repo-topology.md)).** The architect runs a one-time local bootstrap apply — same mechanism as topology 1, with `enable_wif: true` and `wif_github_repository` set — that provisions a dedicated deployer service account and a WIF trust binding scoped to a private repo the client owns. The client then copies [`infra/gcp/client-repo-template/`](../infra/gcp/client-repo-template/) into that repo. From that point, the client's own GitHub Actions (`deploy.yml`, `plan.yml`) run `terraform apply`/`plan` on every push/PR to *their* repo, authenticated via WIF — no long-lived key stored anywhere. This repo's own CI is still never involved; the client-owned repo is a **second** Terraform root writing to the same remote state the bootstrap apply created. See [ADR-008](../decisions/ADR-008-per-client-repo-topology.md) for the rationale and [`infra/gcp/client-repo-template/README.md`](../infra/gcp/client-repo-template/README.md) for the exact handoff sequence.
+
+Both topologies provision identical client-side infrastructure (Cloud Run job, Scheduler, buckets) from the same module — they differ only in who applies changes after the initial bootstrap.
 
 ### Scanner image distribution via GHCR
 
@@ -47,21 +51,30 @@ flowchart TD
   GHCR["GHCR<br/>ghcr.io/eriklacson/leansec-nuclei<br/>(public, semver tagged)"]
   Arch["Architect workstation<br/>terraform apply<br/>(gcloud auth as architect)"]
 
-  subgraph Private["Client-controlled storage"]
+  subgraph Private["Client-controlled storage (topology 1)"]
     Cfg["tfvars · targets · backend.tf"]
+  end
+
+  subgraph ClientRepo["Client-owned private repo (topology 2, ADR-008)"]
+    ClientCI["GitHub Actions<br/>deploy.yml / plan.yml"]
   end
 
   subgraph Client["Client GCP project"]
     Run["Cloud Run job"]
     Sched["Cloud Scheduler (optional)"]
     Buckets["Config + Results buckets"]
-    WIF["WIF pool (optional)"]
+    WIF["WIF pool<br/>(topology 2 only)"]
+    Deployer["Deployer SA<br/>(topology 2 only)"]
   end
 
   CI -- publish --> GHCR
-  Module -. source = git::... .-> Arch
+  Module -. source = relative path .-> Arch
+  Module -. "source = git::...?ref=vX.Y.Z" .-> ClientCI
   Cfg --> Arch
-  Arch -- applies --> Client
+  Arch -- "applies (bootstrap, both topologies)" --> Client
+  ClientCI -- "applies, ongoing (topology 2)" --> Client
+  ClientCI -. authenticates via .-> WIF
+  WIF -. impersonates .-> Deployer
   GHCR -- image pull at scan time --> Run
   Sched -- triggers --> Run
   Run --> Buckets
@@ -69,7 +82,7 @@ flowchart TD
   classDef note fill:#fffbe6,stroke:#999,color:#333;
 ```
 
-No LeanSecurity-owned GCP infrastructure. No per-client artifacts in the public repo.
+No LeanSecurity-owned GCP infrastructure. No per-client artifacts in the public repo — `client-repo-template/` is a template, not a per-client copy.
 
 ### What lives where
 
@@ -77,7 +90,8 @@ No LeanSecurity-owned GCP infrastructure. No per-client artifacts in the public 
 |---|---|---|
 | Scanner code, Terraform module, Dockerfile, `_example/` | Public repo | LeanSecurity |
 | Scanner image | GHCR (public) | LeanSecurity |
-| Per-client tfvars, targets.txt, backend.tf | `deployments/<client>/` in repo checkout (gitignored) | Client / shared with architect |
+| Per-client tfvars, targets.txt, backend.tf (topology 1) | `deployments/<client>/` in repo checkout (gitignored) | Client / shared with architect |
+| Client-owned deployment repo, copied from `infra/gcp/client-repo-template/` (topology 2) | Client's own private GitHub repo | Client |
 | Per-client Terraform state | GCS bucket in client GCP project | Client |
 | Per-client GCP resources (buckets, Cloud Run, Scheduler, IAM) | Client GCP project | Client |
 
@@ -118,7 +132,7 @@ The Terraform module exposes three flags that adapt the deployment to engagement
 | Flag | Default | Effect when enabled | When to use the non-default |
 |---|---|---|---|
 | `enable_scheduler` | `true` | Provisions Cloud Scheduler job + scheduler SA + invoker IAM binding. Monthly cron fires the Cloud Run job autonomously. | Disable if the client drives scan cadence from their own scheduling system (Airflow, internal CI, manual on-demand). |
-| `enable_wif` | `false` | Provisions Workload Identity Federation pool, GitHub OIDC provider, and SA binding. Allows an external CI to authenticate as a GCP service account without static keys. | Enable if the client wants to drive scans from their own CI, or if a future engagement model requires CI-driven Terraform apply. |
+| `enable_wif` | `false` | Provisions a dedicated deployer service account, Workload Identity Federation pool, GitHub OIDC provider, and the trust binding between them. This is topology 2's provisioning switch ([ADR-008](../decisions/ADR-008-per-client-repo-topology.md)) — not a hypothetical future option. | Enable for the client-owned CI topology — the client's own GitHub Actions apply Terraform under this identity. See [`infra/gcp/client-repo-template/`](../infra/gcp/client-repo-template/). |
 | `enable_ar_mirror` | `false` | Provisions a `google_artifact_registry_repository` in the client project for mirroring the GHCR image. The mirror push is performed manually by the architect after apply. | Enable for clients whose policies require in-project container registry locality. |
 
 The asymmetric defaults reflect what's intrinsic to the pipeline. Autonomous monthly cadence is the product; CI-driven access and registry mirroring are power-user extensions.
@@ -127,7 +141,7 @@ The asymmetric defaults reflect what's intrinsic to the pipeline. Autonomous mon
 
 Workload Identity Federation lets external systems (GitHub Actions, AWS, on-prem) authenticate as a GCP service account using short-lived OIDC tokens instead of long-lived JSON key files. The trust binding lives in GCP; no static credentials exist anywhere. It's the modern replacement for service account keys.
 
-In the default operating model, WIF is unnecessary — the architect runs Terraform from a workstation with personal gcloud credentials, and the image build pushes to GHCR with the workflow's built-in `GITHUB_TOKEN`. WIF earns its place only when an external system needs persistent authenticated access to the client project, which is not part of the default activation.
+In topology 1, WIF is unnecessary — the architect runs Terraform from a workstation with personal gcloud credentials, and the image build pushes to GHCR with the workflow's built-in `GITHUB_TOKEN`. WIF earns its place in topology 2, where the client's own GitHub Actions need persistent authenticated access to the client project between architect visits.
 
 ## 5. Public repo CI/CD model
 
@@ -138,7 +152,9 @@ The public repo has exactly two CI workflows. Both run in GitHub Actions, both t
 | [`ci.yaml`](../.github/workflows/ci.yaml) | Every push and PR | Lint (Black, Ruff), security scan (Bandit), pytest | None |
 | [`publish-image.yaml`](../.github/workflows/publish-image.yaml) | Push to `main` touching `docker/` or `scanner/`, and on Git tag `v*` | Build container image, push to GHCR with `:latest`, `:<sha>`, and (on tag) `:vX.Y.Z` | `GITHUB_TOKEN` (built-in) |
 
-There is **no client-deploy CI in the public repo**. The "gated workflow" pattern from earlier scaffolding is obsolete under this model — there is no per-client Terraform apply for CI to run.
+This public repo's own CI never runs `terraform apply` against a client project — that remains true under both topologies above. The "gated workflow" pattern from earlier scaffolding, which would have run per-client Terraform apply *from inside this repo's own CI*, remains obsolete; nothing in this repo's `.github/workflows/` does that.
+
+Client-owned CI (topology 2) is a different thing entirely: `infra/gcp/client-repo-template/` publishes a `deploy.yml`/`plan.yml` pair that *does* run per-client `terraform apply`/`plan` — but only once copied into the client's own private repo, running as the client's own CI, under WIF. That workflow pair is a template shipped by this repo, not a workflow this repo runs. See §2, topology 2.
 
 ### GHCR image tagging
 
@@ -154,7 +170,7 @@ For the maintainer-side procedure (one-time GHCR setup, cutting a semver release
 
 ## 6. Per-client onboarding
 
-Onboarding a new client is a procedure run by the architect. It is mechanical, scriptable, and billable to the engagement.
+Onboarding a new client is a procedure run by the architect. It is mechanical, scriptable, and billable to the engagement. This table describes **topology 1**; topology 2 shares steps 1–10 unchanged (with `enable_wif: true` and `wif_github_repository` set in step 6) and replaces steps 11–12 with a handoff to the client — see [`infra/gcp/client-repo-template/README.md`](../infra/gcp/client-repo-template/README.md#sequencing--this-order-matters) for the client-side steps that follow.
 
 | # | Step | Where | Tool |
 |---|------|-------|------|
@@ -163,17 +179,17 @@ Onboarding a new client is a procedure run by the architect. It is mechanical, s
 | 3 | Create Terraform state bucket | Client project | [`scripts/bootstrap-gcp-client.sh`](../scripts/bootstrap-gcp-client.sh) |
 | 4 | Grant architect IAM access to the client project | Client project | gcloud (by client admin) |
 | 5 | Create deployment folder in the repo checkout | Architect workstation | `cp -r infra/gcp/_example/ deployments/<client>/` |
-| 6 | Populate `terraform.tfvars`, `backend.tf`, `targets.txt` | Architect workstation | editor |
-| 7 | Populate `terraform.tfvars`, `backend.tf`, `targets.txt` | Architect workstation | editor |
+| 6 | Populate `terraform.tfvars`, `backend.tf` | Architect workstation | editor |
+| 7 | Populate `targets.txt`, `profiles.yaml` | Architect workstation | editor |
 | 8 | `terraform init` against the client state bucket | Architect workstation | terraform |
 | 9 | `terraform plan`, review | Architect workstation | terraform |
 | 10 | `terraform apply` | Architect workstation | terraform |
-| 11 | Manually trigger first scan, verify JSONL output | Client project | gcloud |
+| 11 | Manually trigger first scan, verify JSONL output (topology 1) — or hand off `terraform output` + tfvars values to the client (topology 2) | Client project | gcloud, or see client-repo-template README |
 | 12 | Confirm Cloud Scheduler shows correct next execution time | Client project | gcloud / GCP console |
 
 Steps 1–4 are bootstrap: they create the trust anchor that lets Terraform run. They are codified in [`scripts/bootstrap-gcp-client.sh`](../scripts/bootstrap-gcp-client.sh) — not in Terraform, because Terraform itself depends on the state bucket and architect IAM access existing first.
 
-Steps 5–7 set up the client's deployment folder at `deployments/<client>/`. The folder is gitignored, so no client data is ever committed. The architect works from this folder on their local checkout; when they need to update a client's config — change targets, bump scanner image — they edit in place and re-apply.
+Steps 5–7 set up the client's deployment folder at `deployments/<client>/`. The folder is gitignored, so no client data is ever committed. The architect works from this folder on their local checkout; when they need to update a client's config — change targets, bump scanner image — they edit in place and re-apply. (In topology 2, this is also where the architect's one-time bootstrap apply happens — the ongoing edits after handoff happen in the client's own repo instead.)
 
 ### Required APIs (step 2)
 
@@ -199,6 +215,20 @@ Granted at the project level by the client admin, scoped to the engagement:
 - `roles/iam.workloadIdentityPoolAdmin` (only if `enable_wif = true`)
 - `roles/artifactregistry.admin` (only if `enable_ar_mirror = true`)
 
+### IAM for the client CI identity (topology 2 only)
+
+Unlike the architect's IAM above, this is not granted manually — Terraform provisions it during the bootstrap apply (step 10) as part of `enable_wif = true`. A dedicated deployer service account (distinct from the scanner SA that runs Nuclei) receives these project-level roles, matching what the client's `deploy.yml`/`plan.yml` need to run `terraform apply`/`plan`:
+
+- `roles/run.admin`
+- `roles/iam.serviceAccountAdmin`
+- `roles/iam.serviceAccountUser`
+- `roles/storage.admin`
+- `roles/cloudscheduler.admin`
+- `roles/iam.workloadIdentityPoolAdmin`
+- `roles/artifactregistry.admin`
+
+The WIF trust binding then lets the client's GitHub Actions impersonate this SA using short-lived OIDC tokens, scoped to the specific `wif_github_repository`. See [`infra/gcp/README.md`](../infra/gcp/README.md#enable_wif) for the full rationale, including why this is a separate SA from the scanner identity.
+
 ### Time estimate
 
 A clean onboarding, with the bootstrap script in hand and a GCP project ready, is approximately **30–60 minutes of architect time** — most of it waiting for GCP API enablement and the first `terraform apply`. One-time per client.
@@ -208,5 +238,7 @@ A clean onboarding, with the bootstrap script in hand and a GCP project ready, i
 - [Root README](../README.md) — modes, quick starts, repo layout.
 - [Module reference](../infra/gcp/README.md) — variable + output tables, flag semantics.
 - [Setup guide](setup-guide.md) — step-by-step walkthrough with verification snippets and troubleshooting.
-- [`infra/gcp/_example/`](../infra/gcp/_example/) — template for the private deployment folder.
+- [`infra/gcp/_example/`](../infra/gcp/_example/) — template for the private deployment folder (topology 1).
+- [ADR-008](../decisions/ADR-008-per-client-repo-topology.md) — why the client-owned repo topology exists.
+- [`infra/gcp/client-repo-template/`](../infra/gcp/client-repo-template/) — template for the client-owned repo (topology 2).
 - [`scripts/bootstrap-gcp-client.sh`](../scripts/bootstrap-gcp-client.sh) — one-shot project preparation.
