@@ -19,6 +19,12 @@ module "nuclei" {
   enable_wif       = var.enable_wif
   enable_ar_mirror = var.enable_ar_mirror
 
+  # Derived the same way backend.tf.tmpl's bucket name is — this is the
+  # state bucket scripts/bootstrap-gcp-client.sh creates, so the deployer
+  # SA (created below when enable_wif = true) gets access to it from this
+  # apply, not left for the client repo's first CI apply to create alone.
+  state_bucket_name = "${var.project_id}-tfstate-leansecurity-nuclei"
+
   wif_github_repository = var.wif_github_repository
 
   job_timeout = var.job_timeout

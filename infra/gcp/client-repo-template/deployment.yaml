@@ -16,10 +16,15 @@ schema_version: 1
 deployment:
   client_name: <your-client>
   gcp_project_id: <your-gcp-project>
-  region: asia-southeast1
+  # No default filled in here on purpose — the module default is
+  # asia-southeast1, but this file is meant to record the architect's
+  # ACTUAL bootstrap value. If they used the default, write it explicitly;
+  # do not leave this placeholder unedited assuming it's already correct.
+  region: <your-region>
 
 scanner:
-  image: ghcr.io/eriklacson/leansec-nuclei:latest
+  # Pinned semver tag, never :latest — must match terraform.tfvars.
+  image: ghcr.io/eriklacson/leansec-nuclei:<pinned-version>
 
 features:
   enable_scheduler: true

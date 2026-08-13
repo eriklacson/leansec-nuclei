@@ -60,7 +60,7 @@
         "wif_github_repository": {
           "type": "string",
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+$",
-          "description": "GitHub repository (owner/repo) authorized to assume the scanner SA via WIF — the client's own repo, e.g. scaffolded from infra/gcp/client-repo-template/. Required when enable_wif is true. Must exist before this apply runs; see ADR-008."
+          "description": "GitHub repository (owner/repo) authorized to assume the deployer SA via WIF — the client's own repo, e.g. scaffolded from infra/gcp/client-repo-template/. Required when enable_wif is true. Must exist before this apply runs; see ADR-008."
         },
         "enable_ar_mirror": {
           "type": "boolean",
