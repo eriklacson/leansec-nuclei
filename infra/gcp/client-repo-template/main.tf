@@ -23,7 +23,7 @@
 # If any of these values need to change, contact the architect first.
 
 module "leansec_nuclei" {
-  source = "github.com/eriklacson/leansec-nuclei//infra/gcp?ref=v1.2.3"
+  source = "github.com/eriklacson/leansec-nuclei//infra/gcp?ref=v1.1.0"
 
   project_id    = var.project_id
   client_name   = var.client_name
